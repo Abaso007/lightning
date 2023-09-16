@@ -42,7 +42,11 @@ from lightning.fabric.strategies import DDPStrategy
 def player(args, world_collective: TorchCollective, player_trainer_collective: TorchCollective):
     run_name = f"{args.env_id}_{args.exp_name}_{args.seed}"
     logger = TensorBoardLogger(
-        root_dir=os.path.join("logs", "fabric_decoupled_logs", datetime.today().strftime("%Y-%m-%d_%H-%M-%S")),
+        root_dir=os.path.join(
+            "logs",
+            "fabric_decoupled_logs",
+            datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+        ),
         name=run_name,
     )
     log_dir = logger.log_dir
@@ -105,10 +109,7 @@ def player(args, world_collective: TorchCollective, player_trainer_collective: T
     if not args.share_data:
         if single_global_step < world_collective.world_size - 1:
             raise RuntimeError(
-                "The number of trainers ({}) is greater than the available collected data ({}). ".format(
-                    world_collective.world_size - 1, single_global_step
-                )
-                + "Consider to lower the number of trainers at least to the size of available collected data"
+                f"The number of trainers ({world_collective.world_size - 1}) is greater than the available collected data ({single_global_step}). Consider to lower the number of trainers at least to the size of available collected data"
             )
         chunks_sizes = [
             len(chunk)

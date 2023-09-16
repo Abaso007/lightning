@@ -57,28 +57,29 @@ class DatabaseClient:
     def select_all(self, model: Optional[Type[T]] = None) -> List[T]:
         cls = model if model else self.model
         resp = self.session.post(
-            self.db_url + "/select_all/", data=_GeneralModel.from_cls(cls, token=self.token).json()
+            f"{self.db_url}/select_all/",
+            data=_GeneralModel.from_cls(cls, token=self.token).json(),
         )
         assert resp.status_code == 200
         return [cls(**data) for data in resp.json()]
 
     def insert(self, model: T) -> None:
         resp = self.session.post(
-            self.db_url + "/insert/",
+            f"{self.db_url}/insert/",
             data=_GeneralModel.from_obj(model, token=self.token).json(),
         )
         assert resp.status_code == 200
 
     def update(self, model: T) -> None:
         resp = self.session.post(
-            self.db_url + "/update/",
+            f"{self.db_url}/update/",
             data=_GeneralModel.from_obj(model, token=self.token).json(),
         )
         assert resp.status_code == 200
 
     def delete(self, model: T) -> None:
         resp = self.session.post(
-            self.db_url + "/delete/",
+            f"{self.db_url}/delete/",
             data=_GeneralModel.from_obj(model, token=self.token).json(),
         )
         assert resp.status_code == 200

@@ -166,7 +166,7 @@ class _LoadBalancer(LightningWork):
         self.ready = False
 
         if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
+            endpoint = f"/{endpoint}"
 
         self.endpoint = endpoint
         self._fastapi_app = None
@@ -274,7 +274,7 @@ class _LoadBalancer(LightningWork):
             raise HTTPException(503, "None of the workers are healthy!, try again in a few seconds")
 
         # if no servers are available, proxy the request to cold start proxy handler
-        if not self.servers and self._cold_start_proxy:
+        if not self.servers:
             return await self._cold_start_proxy.handle_request(data)
 
         # if out of capacity, proxy the request to cold start proxy handler
@@ -411,12 +411,10 @@ class _LoadBalancer(LightningWork):
         if old_server_urls == available_urls:
             return
 
-        newly_added = available_urls - old_server_urls
-        if newly_added:
+        if newly_added := available_urls - old_server_urls:
             logger.info(f"servers added: {newly_added}")
 
-        deleted = old_server_urls - available_urls
-        if deleted:
+        if deleted := old_server_urls - available_urls:
             logger.info(f"servers deleted: {deleted}")
         self.send_request_to_update_servers(list(available_urls))
 
@@ -470,10 +468,8 @@ class _LoadBalancer(LightningWork):
             url = f"http://localhost:{self.port}{self.endpoint}"
 
         frontend_objects = {"name": self._api_name, "url": url, "method": "POST", "request": None, "response": None}
-        code_samples = self.get_code_sample(url)
-        if code_samples:
+        if code_samples := self.get_code_sample(url):
             frontend_objects["code_sample"] = code_samples
-            # TODO also set request/response for JS UI
         else:
             try:
                 request = self._get_sample_dict_from_datatype(self._input_type)

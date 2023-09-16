@@ -79,8 +79,7 @@ class LitApp(LightningFlow):
         self.processor.run(self.lit_dash.df, self.lit_dash.selected_year)
 
     def configure_layout(self):
-        tab1 = {"name": "home", "content": self.lit_dash}
-        return tab1
+        return {"name": "home", "content": self.lit_dash}
 
 
 app = LightningApp(LitApp())

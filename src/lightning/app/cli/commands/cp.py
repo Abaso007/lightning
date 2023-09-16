@@ -108,8 +108,7 @@ def _upload_files(live, client: LightningClient, local_src: str, remote_dst: str
 
     if os.path.isdir(local_src):
         for root_dir, _, paths in os.walk(local_src):
-            for path in paths:
-                upload_paths.append(os.path.join(root_dir, path))
+            upload_paths.extend(os.path.join(root_dir, path) for path in paths)
     else:
         upload_paths = [local_src]
 
@@ -121,8 +120,12 @@ def _upload_files(live, client: LightningClient, local_src: str, remote_dst: str
 
     for upload_path in upload_paths:
         for cluster in clusters.clusters:
-            filename = str(upload_path).replace(str(os.getcwd()), "")[1:]
-            filename = _get_prefix(os.path.join(remote_dst, filename), lit_resource) if lit_resource else "/" + filename
+            filename = str(upload_path).replace(os.getcwd(), "")[1:]
+            filename = (
+                _get_prefix(os.path.join(remote_dst, filename), lit_resource)
+                if lit_resource
+                else f"/{filename}"
+            )
 
             response = client.lightningapp_instance_service_upload_project_artifact(
                 project_id=project_id,
@@ -141,7 +144,9 @@ def _upload_files(live, client: LightningClient, local_src: str, remote_dst: str
 
     progress = _get_progress_bar()
 
-    total_size = sum([Path(path).stat().st_size for path in upload_paths]) // max(len(clusters.clusters), 1)
+    total_size = sum(
+        Path(path).stat().st_size for path in upload_paths
+    ) // max(len(clusters.clusters), 1)
     task_id = progress.add_task("upload", filename="", total=total_size)
 
     progress.start()
@@ -153,9 +158,9 @@ def _upload_files(live, client: LightningClient, local_src: str, remote_dst: str
 
     progress.stop()
 
-    # Raise the first exception found
-    exception = next((e for e in results if isinstance(e, Exception)), None)
-    if exception:
+    if exception := next(
+        (e for e in results if isinstance(e, Exception)), None
+    ):
         _error_and_exit("We detected errors in uploading your files.")
         return None
     return None
@@ -187,7 +192,7 @@ def _zip_files(live: Live, remote_src: str, local_dst: str) -> None:
         )
 
     if os.path.isdir(local_dst):
-        local_dst = os.path.join(local_dst, os.path.basename(remote_src) + ".zip")
+        local_dst = os.path.join(local_dst, f"{os.path.basename(remote_src)}.zip")
 
     project_id, lit_resource = _get_project_id_and_resource(remote_src)
 
@@ -249,9 +254,9 @@ def _download_files(live, client, remote_src: str, local_dst: str, pwd: str):
 
     progress.stop()
 
-    # Raise the first exception found
-    exception = next((e for e in results if isinstance(e, Exception)), None)
-    if exception:
+    if exception := next(
+        (e for e in results if isinstance(e, Exception)), None
+    ):
         _error_and_exit("There was an error downloading your files.")
 
 
@@ -303,12 +308,12 @@ def _get_project_id_and_resource(pwd: str) -> Tuple[str, Union[Externalv1Lightni
 
     lit_ressources = [lit_resource for lit_resource in lit_cloud_spaces if lit_resource.name == resource_name]
 
-    if len(lit_ressources) == 0:
+    if not lit_ressources:
         lit_ressources = [lit_resource for lit_resource in lit_apps if lit_resource.name == resource_name]
 
-        if len(lit_ressources) == 0:
-            print(f"ERROR: There isn't any Lightning Ressource matching the name {resource_name}.")
-            sys.exit(0)
+    if not lit_ressources:
+        print(f"ERROR: There isn't any Lightning Ressource matching the name {resource_name}.")
+        sys.exit(0)
 
     return project_id, lit_ressources[0]
 
@@ -331,8 +336,7 @@ def _get_progress_bar(**kwargs: Any) -> Progress:
 
 
 def _storage_host(cluster: Union[V1GetClusterResponse, Externalv1Cluster]) -> str:
-    dev_host = os.environ.get("LIGHTNING_STORAGE_HOST")
-    if dev_host:
+    if dev_host := os.environ.get("LIGHTNING_STORAGE_HOST"):
         return dev_host
     return f"https://storage.{cluster.spec.driver.kubernetes.root_domain_name}"
 
@@ -345,7 +349,11 @@ def _cluster_from_lit_resource(
         return client.cluster_service_get_cluster(lit_resource.spec.cluster_id)
 
     clusters = client.cluster_service_list_clusters()
-    for cluster in clusters.clusters:
-        if cluster.id == clusters.default_cluster:
-            return cluster
-    return None
+    return next(
+        (
+            cluster
+            for cluster in clusters.clusters
+            if cluster.id == clusters.default_cluster
+        ),
+        None,
+    )

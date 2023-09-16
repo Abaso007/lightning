@@ -26,7 +26,7 @@ class TrainAndServe(LightningFlow):
 
     def configure_layout(self):
         return [
-            {"name": "Server", "content": self.model_server.url + "/docs"},
+            {"name": "Server", "content": f"{self.model_server.url}/docs"},
             {"name": "Server Testing", "content": self.performance_tester},
         ]
 

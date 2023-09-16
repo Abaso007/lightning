@@ -116,7 +116,7 @@ class _PatchedWork:
             return object.__getattribute__(self, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ["_state", "_work_class"]:
+        if name in {"_state", "_work_class"}:
             return object.__setattr__(self, name, value)
 
         if hasattr(self._state, name):

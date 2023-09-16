@@ -213,7 +213,7 @@ class Fabric:
         module: nn.Module,
         *optimizers: Optimizer,
         move_to_device: bool = True,
-    ) -> Any:  # no specific return because the way we want our API to look does not play well with mypy
+    ) -> Any:    # no specific return because the way we want our API to look does not play well with mypy
         r"""Set up a model and its optimizers for accelerated training.
 
         Args:
@@ -263,10 +263,7 @@ class Fabric:
 
         self.call("on_after_setup", fabric=self, module=module)
 
-        if optimizers:
-            # join both types in a tuple for API convenience
-            return (module, *optimizers)
-        return module
+        return (module, *optimizers) if optimizers else module
 
     def setup_module(self, module: nn.Module, move_to_device: bool = True) -> _FabricModule:
         r"""Set up a model for accelerated training or inference.

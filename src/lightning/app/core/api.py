@@ -317,11 +317,10 @@ async def post_state(
         last_state = global_app_state_store.get_served_state(x_lightning_session_uuid)
         state = deepcopy(last_state)
         state["app_state"]["stage"] = body["stage"]
-        deep_diff = DeepDiff(last_state, state, verbose_level=2)
     else:
         state = body["state"]
         last_state = global_app_state_store.get_served_state(x_lightning_session_uuid)
-        deep_diff = DeepDiff(last_state, state, verbose_level=2)
+    deep_diff = DeepDiff(last_state, state, verbose_level=2)
     assert api_app_delta_queue is not None
     api_app_delta_queue.put(_DeltaRequest(delta=Delta(deep_diff)))
     return None

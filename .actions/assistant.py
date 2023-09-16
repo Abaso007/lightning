@@ -91,17 +91,17 @@ class _RequirementWithComment(Requirement):
         out = str(self)
         if self.strict:
             return f"{out}  {self.strict_string}"
-        if unfreeze == "major":
+        if unfreeze == "all":
+            for operator, version in self.specs:
+                if operator in ("<", "<="):
+                    # drop upper bound
+                    return out.replace(f"{operator}{version},", "")
+        elif unfreeze == "major":
             for operator, version in self.specs:
                 if operator in ("<", "<="):
                     major = LooseVersion(version).version[0]
                     # replace upper bound with major version increased by one
                     return out.replace(f"{operator}{version}", f"<{major + 1}.0")
-        elif unfreeze == "all":
-            for operator, version in self.specs:
-                if operator in ("<", "<="):
-                    # drop upper bound
-                    return out.replace(f"{operator}{version},", "")
         elif unfreeze != "none":
             raise ValueError(f"Unexpected unfreeze: {unfreeze!r} value.")
         return out
@@ -267,10 +267,12 @@ def _load_aggregate_requirements(req_dir: str = "requirements", freeze_requireme
 def _retrieve_files(directory: str, *ext: str) -> List[str]:
     all_files = []
     for root, _, files in os.walk(directory):
-        for fname in files:
-            if not ext or any(os.path.split(fname)[1].lower().endswith(e) for e in ext):
-                all_files.append(os.path.join(root, fname))
-
+        all_files.extend(
+            os.path.join(root, fname)
+            for fname in files
+            if not ext
+            or any(os.path.split(fname)[1].lower().endswith(e) for e in ext)
+        )
     return all_files
 
 

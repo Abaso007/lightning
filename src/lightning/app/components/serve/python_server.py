@@ -318,8 +318,7 @@ class PythonServer(LightningWork, abc.ABC):
             "response": response,
         }
 
-        code_sample = self.get_code_sample(url)
-        if code_sample:
+        if code_sample := self.get_code_sample(url):
             frontend_payload["code_sample"] = code_sample
 
         return APIAccessFrontend(apis=[frontend_payload])

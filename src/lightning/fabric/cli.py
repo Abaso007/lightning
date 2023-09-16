@@ -173,9 +173,8 @@ def _torchrun_launch(args: Namespace, script_args: List[str]) -> None:
         f"--master_addr={args.main_address}",
         f"--master_port={args.main_port}",
         args.script,
+        *script_args,
     ]
-    torchrun_args.extend(script_args)
-
     # set a good default number of threads for OMP to avoid warnings being emitted to the user
     os.environ.setdefault("OMP_NUM_THREADS", str(max(1, (os.cpu_count() or 1) // num_processes)))
     torchrun.main(torchrun_args)

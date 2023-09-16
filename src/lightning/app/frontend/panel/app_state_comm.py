@@ -33,9 +33,7 @@ _THREAD: Thread = None
 
 
 def _get_ws_port():
-    if "LIGHTNING_APP_STATE_URL" in os.environ:
-        return 8080
-    return APP_SERVER_PORT
+    return 8080 if "LIGHTNING_APP_STATE_URL" in os.environ else APP_SERVER_PORT
 
 
 def _get_ws_url():

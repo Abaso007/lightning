@@ -150,7 +150,11 @@ def make_env(env_id: str, seed: int, idx: int, capture_video: bool, run_name: Op
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if capture_video and idx == 0 and run_name is not None:
             env = gym.wrappers.RecordVideo(
-                env, os.path.join(run_name, prefix + "_videos" if prefix else "videos"), disable_logger=True
+                env,
+                os.path.join(
+                    run_name, f"{prefix}_videos" if prefix else "videos"
+                ),
+                disable_logger=True,
             )
         env.action_space.seed(seed)
         env.observation_space.seed(seed)

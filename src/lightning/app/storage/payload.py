@@ -93,9 +93,7 @@ class _BasePayload(ABC):
     @property
     def _path(self) -> Optional[Path]:
         """Path to the file that the payload value gets serialized to."""
-        if not self._name:
-            return None
-        return Path("lit://", self._name)
+        return None if not self._name else Path("lit://", self._name)
 
     @abstractmethod
     def save(self, obj: Any, path: str) -> None:

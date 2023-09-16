@@ -14,13 +14,12 @@ class Flow(LightningFlow):
     def run_notebook(self, config: RunNotebookConfig):
         if config.name in self.notebooks:
             return f"The Notebook {config.name} already exists."
-        else:
-            # 2. Dynamically creates the Notebook if it doesn't exist and runs it.
-            self.notebooks[config.name] = JupyterLab(
-                cloud_compute=CloudCompute(config.cloud_compute)
-            )
-            self.notebooks[config.name].run()
-            return f"The Notebook {config.name} was created."
+        # 2. Dynamically creates the Notebook if it doesn't exist and runs it.
+        self.notebooks[config.name] = JupyterLab(
+            cloud_compute=CloudCompute(config.cloud_compute)
+        )
+        self.notebooks[config.name].run()
+        return f"The Notebook {config.name} was created."
 
     def configure_commands(self):
         # 3. Returns a list of dictionaries with the format:

@@ -33,8 +33,7 @@ def string2dict(text):
     if not isinstance(text, str):
         text = text.decode("utf-8")
     try:
-        js = json.loads(text, object_pairs_hook=_duplicate_checker)
-        return js
+        return json.loads(text, object_pairs_hook=_duplicate_checker)
     except ValueError as ex:
         raise ValueError(f"Unable to load JSON: {str(ex)}.")
 

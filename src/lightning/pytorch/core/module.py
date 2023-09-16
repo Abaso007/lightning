@@ -192,11 +192,7 @@ class LightningModule(
         lr_schedulers: List[LRSchedulerPLType] = [config.scheduler for config in self.trainer.lr_scheduler_configs]
 
         # single scheduler
-        if len(lr_schedulers) == 1:
-            return lr_schedulers[0]
-
-        # multiple schedulers
-        return lr_schedulers
+        return lr_schedulers[0] if len(lr_schedulers) == 1 else lr_schedulers
 
     @property
     def trainer(self) -> "pl.Trainer":
@@ -301,13 +297,10 @@ class LightningModule(
         """Reference to the list of loggers in the Trainer."""
         if self._fabric is not None:
             return self._fabric.loggers
-        if self._trainer is not None:
-            return self._trainer.loggers
-        return []  # type: ignore[return-value]
+        return self._trainer.loggers if self._trainer is not None else []
 
     def _call_batch_hook(self, hook_name: str, *args: Any) -> Any:
-        trainer = self._trainer
-        if trainer:
+        if trainer := self._trainer:
             datahook_selector = trainer._data_connector._datahook_selector
             assert datahook_selector is not None
             obj = datahook_selector.get_instance(hook_name)
@@ -618,7 +611,7 @@ class LightningModule(
 
     def __to_tensor(self, value: Union[Tensor, numbers.Number], name: str) -> Tensor:
         value = value.clone().detach() if isinstance(value, Tensor) else torch.tensor(value, device=self.device)
-        if not torch.numel(value) == 1:
+        if torch.numel(value) != 1:
             raise ValueError(
                 f"`self.log({name}, {value})` was called, but the tensor must have a single element."
                 f" You can try doing `self.log({name}, {value}.mean())`"

@@ -88,7 +88,9 @@ class TransformerEnginePrecision(Precision):
 
     def convert_module(self, module: torch.nn.Module) -> torch.nn.Module:
         # avoid converting if any is found. assume the user took care of it
-        if self.replace_layers and not any("transformer_engine" in m.__module__ for m in module.modules()):
+        if self.replace_layers and all(
+            "transformer_engine" not in m.__module__ for m in module.modules()
+        ):
             _convert_layers(module)
         module = module.to(dtype=self.dtype)
         return module

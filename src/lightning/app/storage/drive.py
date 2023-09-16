@@ -149,8 +149,10 @@ class Drive:
         prefix_len = len(str(self.root).split(sep))
         for p in paths:
             if self.fs.exists(p):
-                for f in self.fs.ls(p):
-                    files.append(str(pathlib.Path(*pathlib.Path(f).parts[prefix_len:])))
+                files.extend(
+                    str(pathlib.Path(*pathlib.Path(f).parts[prefix_len:]))
+                    for f in self.fs.ls(p)
+                )
         return files
 
     def get(
@@ -260,11 +262,11 @@ class Drive:
         return result
 
     def _collect_component_names(self) -> List[str]:
-        sep = "/"
         if self.fs.exists(self.drive_root):
             # Invalidate cache before running ls in case new directories have been added
             # TODO: Re-evaluate this - may lead to performance issues
             self.fs.invalidate_cache()
+            sep = "/"
             return [str(p.split(sep)[-1]) for p in self.fs.ls(self.drive_root)]
         return []
 

@@ -36,7 +36,7 @@ def _find_selected_app_instance_id(app_name: str) -> str:
     for app in app_manager.list_apps():
         all_app_names_and_ids[app.name] = app.id
         # figure out the ID of some app_name
-        if app_name == app.name or app_name == app.id:
+        if app_name in [app.name, app.id]:
             selected_app_instance_id = app.id
             break
 

@@ -50,7 +50,5 @@ class _EmptyInit(TorchFunctionMode):
         if not self.enabled:
             return func(*args, **kwargs)
         if getattr(func, "__module__", None) == "torch.nn.init":
-            if "tensor" in kwargs:
-                return kwargs["tensor"]
-            return args[0]
+            return kwargs["tensor"] if "tensor" in kwargs else args[0]
         return func(*args, **kwargs)

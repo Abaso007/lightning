@@ -63,7 +63,7 @@ class Image:
     channel_first: bool = False
 
     def deserialize(self, data: str) -> torch.Tensor:
-        encoded_with_padding = (data + "===").encode("UTF-8")
+        encoded_with_padding = f"{data}===".encode("UTF-8")
         img = base64.b64decode(encoded_with_padding)
         buffer = BytesIO(img)
         img = PILImage.open(buffer, mode="r")

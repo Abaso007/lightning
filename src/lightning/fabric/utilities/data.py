@@ -103,16 +103,18 @@ def _get_dataloader_init_args_and_kwargs(
     params = dict(inspect.signature(dataloader.__init__).parameters)  # type: ignore[misc]
     has_variadic_kwargs = any(p.kind is p.VAR_KEYWORD for p in params.values())
     if has_variadic_kwargs:
-        # if the signature takes **kwargs, assume they will be passed down with `super().__init__(**kwargs)`
-
         if was_wrapped:
             # if the dataloader was wrapped in a hook, only take arguments with default values
             # and assume user passes their kwargs correctly
-            params.update(
-                {k: v for k, v in inspect.signature(DataLoader.__init__).parameters.items() if v.default is not v.empty}
-            )
+            params |= {
+                k: v
+                for k, v in inspect.signature(
+                    DataLoader.__init__
+                ).parameters.items()
+                if v.default is not v.empty
+            }
         else:
-            params.update(inspect.signature(DataLoader.__init__).parameters)
+            params |= inspect.signature(DataLoader.__init__).parameters
             params.pop("self", None)
 
     if not was_wrapped:
@@ -132,16 +134,14 @@ def _get_dataloader_init_args_and_kwargs(
     else:
         dl_kwargs.update(_dataloader_init_kwargs_resolve_sampler(dataloader, sampler))
 
-    required_args = {
+    if required_args := {
         p.name
         for p in params.values()
         if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
         and p.default is p.empty
         and p.name not in dl_kwargs
         and p.name not in arg_names
-    }
-    # the dataloader has required args which we could not extract from the existing attributes
-    if required_args:
+    }:
         sorted_required_args = sorted(required_args)
         dataloader_cls_name = dataloader.__class__.__name__
         missing_args_message = ", ".join(f"`self.{arg_name}`" for arg_name in sorted_required_args)
@@ -154,9 +154,7 @@ def _get_dataloader_init_args_and_kwargs(
         )
 
     if not has_variadic_kwargs:
-        # the dataloader signature does not allow keyword arguments that need to be passed
-        missing_kwargs = (set(dl_kwargs) | set(arg_names)) - params.keys()
-        if missing_kwargs:
+        if missing_kwargs := (set(dl_kwargs) | set(arg_names)) - params.keys():
             sorted_missing_kwargs = sorted(missing_kwargs)
             dataloader_cls_name = dataloader.__class__.__name__
             raise TypeError(
@@ -209,19 +207,22 @@ def _dataloader_init_kwargs_resolve_sampler(
             except TypeError as ex:
                 import re
 
-                match = re.match(r".*__init__\(\) (got multiple values)|(missing \d required)", str(ex))
-                if not match:
+                if match := re.match(
+                    r".*__init__\(\) (got multiple values)|(missing \d required)",
+                    str(ex),
+                ):
+                    # There could either be too few or too many arguments. Customizing the message based on this doesn't
+                    # make much sense since our MisconfigurationException is going to be raised from the original one.
+                    raise TypeError(
+                        " Lightning can't inject a (distributed) sampler into your batch sampler, because it doesn't"
+                        " subclass PyTorch's `BatchSampler`. To mitigate this, either follow the API of `BatchSampler`"
+                        " or set`.setup_dataloaders(..., use_distributed_sampler=False)`. If you choose the latter, you"
+                        " will be responsible for handling the distributed sampling within your batch sampler."
+                    ) from ex
+                else:
                     # an unexpected `TypeError`, continue failure
                     raise
 
-                # There could either be too few or too many arguments. Customizing the message based on this doesn't
-                # make much sense since our MisconfigurationException is going to be raised from the original one.
-                raise TypeError(
-                    " Lightning can't inject a (distributed) sampler into your batch sampler, because it doesn't"
-                    " subclass PyTorch's `BatchSampler`. To mitigate this, either follow the API of `BatchSampler`"
-                    " or set`.setup_dataloaders(..., use_distributed_sampler=False)`. If you choose the latter, you"
-                    " will be responsible for handling the distributed sampling within your batch sampler."
-                ) from ex
         else:
             # The sampler is not a PyTorch `BatchSampler`, we don't know how to inject a custom sampler
             raise TypeError(
@@ -337,7 +338,7 @@ def _wrap_attr_method(method: Callable, tag: _WrapAttrTag) -> Callable:
         # First, let's find out if we're the first in inheritance chain calling the patched method.
         name, *_ = args
         prev_call_name, prev_call_method = getattr(obj, "__pl_current_call", (None, "method"))
-        first_call = not (prev_call_name == name and prev_call_method == tag)
+        first_call = prev_call_name != name or prev_call_method != tag
 
         # Then mark the current called method
         object.__setattr__(obj, "__pl_current_call", (name, tag))

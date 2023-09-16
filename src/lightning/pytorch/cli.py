@@ -30,9 +30,9 @@ from lightning.pytorch.utilities.exceptions import MisconfigurationException
 from lightning.pytorch.utilities.model_helpers import is_overridden
 from lightning.pytorch.utilities.rank_zero import rank_zero_warn
 
-_JSONARGPARSE_SIGNATURES_AVAILABLE = RequirementCache("jsonargparse[signatures]>=4.17.0")
-
-if _JSONARGPARSE_SIGNATURES_AVAILABLE:
+if _JSONARGPARSE_SIGNATURES_AVAILABLE := RequirementCache(
+    "jsonargparse[signatures]>=4.17.0"
+):
     import docstring_parser
     from jsonargparse import (
         ActionConfigFile,
@@ -249,9 +249,7 @@ class SaveConfigCallback(Callback):
             if not self.overwrite:
                 # check if the file exists on rank 0
                 file_exists = fs.isfile(config_path) if trainer.is_global_zero else False
-                # broadcast whether to fail to all ranks
-                file_exists = trainer.strategy.broadcast(file_exists)
-                if file_exists:
+                if file_exists := trainer.strategy.broadcast(file_exists):
                     raise RuntimeError(
                         f"{self.__class__.__name__} expected {config_path} to NOT exist. Aborting to avoid overwriting"
                         " results of a previous run. You can delete the previous config file,"
@@ -426,7 +424,11 @@ class LightningCLI:
     def add_core_arguments_to_parser(self, parser: LightningArgumentParser) -> None:
         """Adds arguments from the core classes to the parser."""
         parser.add_lightning_class_args(self.trainer_class, "trainer")
-        trainer_defaults = {"trainer." + k: v for k, v in self.trainer_defaults.items() if k != "callbacks"}
+        trainer_defaults = {
+            f"trainer.{k}": v
+            for k, v in self.trainer_defaults.items()
+            if k != "callbacks"
+        }
         parser.set_defaults(trainer_defaults)
 
         parser.add_lightning_class_args(self._model_class, "model", subclass_mode=self.subclass_mode_model)
@@ -708,7 +710,7 @@ class LightningCLI:
 
 
 def _class_path_from_class(class_type: Type) -> str:
-    return class_type.__module__ + "." + class_type.__name__
+    return f"{class_type.__module__}.{class_type.__name__}"
 
 
 def _global_add_class_path(

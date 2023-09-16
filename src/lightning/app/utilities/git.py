@@ -43,9 +43,7 @@ def check_github_repository(cwd=None) -> bool:
     """Checks if the active directory is a GitHub repository."""
     github_repository = execute_git_command(["config", "--get", "remote.origin.url"], cwd=cwd)
 
-    if not github_repository or "github.com" not in github_repository:
-        return False
-    return True
+    return bool(github_repository and "github.com" in github_repository)
 
 
 def get_git_relative_path(file: Union[str, Path]) -> str:

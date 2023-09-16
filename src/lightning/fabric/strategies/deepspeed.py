@@ -720,12 +720,10 @@ class DeepSpeedStrategy(DDPStrategy, _Sharded):
                     "max_in_cpu": max_in_cpu,
                     "pin_memory": pin_memory,
                 }
-            cfg.update(
-                {
-                    "zero_allow_untested_optimizer": zero_allow_untested_optimizer,
-                    "zero_optimization": zero_config,
-                }
-            )
+            cfg |= {
+                "zero_allow_untested_optimizer": zero_allow_untested_optimizer,
+                "zero_optimization": zero_config,
+            }
         if logging_batch_size_per_gpu:
             cfg["train_micro_batch_size_per_gpu"] = logging_batch_size_per_gpu
         return cfg
@@ -815,8 +813,7 @@ def _validate_state_keys(state: Dict[str, Any]) -> None:
         "ds_config",
         "ds_version",
     }
-    colliding_keys = deepspeed_internal_keys.intersection(state.keys())
-    if colliding_keys:
+    if colliding_keys := deepspeed_internal_keys.intersection(state.keys()):
         rank_zero_warn(
             "Your state has keys that collide with DeepSpeed's internal engine state. This could result in your"
             " values being overwritten by DeepSpeed. Consider changing the name of these keys to something else: "
@@ -858,16 +855,15 @@ def _validate_checkpoint_directory(path: _PATH) -> None:
     default_message = f"The provided path is not a valid DeepSpeed checkpoint: {path}"
 
     if not path_is_ds_checkpoint:
-        # Case 1: User may have accidentally passed the subfolder "checkpoint"
-        parent_is_ds_checkpoint = _is_deepspeed_checkpoint(path.parent)
-        if parent_is_ds_checkpoint:
+        if parent_is_ds_checkpoint := _is_deepspeed_checkpoint(path.parent):
             raise FileNotFoundError(
                 f"{default_message}. It looks like you passed the path to a subfolder."
                 f" Try to load using this parent directory instead: {path.parent}"
             )
-        # Case 2: User may have accidentally passed the path to a file inside the "checkpoint" subfolder
-        parent_parent_is_ds_checkpoint = path.is_file() and _is_deepspeed_checkpoint(path.parent.parent)
-        if parent_parent_is_ds_checkpoint:
+        if (
+            parent_parent_is_ds_checkpoint := path.is_file()
+            and _is_deepspeed_checkpoint(path.parent.parent)
+        ):
             raise FileNotFoundError(
                 f"{default_message}. It looks like you passed the path to a file inside a DeepSpeed checkpoint folder."
                 f" Try to load using this parent directory instead: {path.parent.parent}"
@@ -884,7 +880,7 @@ def _format_precision_config(
     initial_scale_power: int,
     hysteresis: int,
 ) -> None:
-    if "fp16" not in config and precision in ("16-mixed", "16-true"):
+    if "fp16" not in config and precision in {"16-mixed", "16-true"}:
         # FP16 is a DeepSpeed standalone AMP implementation
         rank_zero_info("Enabling DeepSpeed FP16. Model parameters and inputs will be cast to `float16`.")
         config["fp16"] = {
@@ -895,6 +891,6 @@ def _format_precision_config(
             "hysteresis": hysteresis,
             "min_loss_scale": min_loss_scale,
         }
-    elif "bf16" not in config and precision in ("bf16-mixed", "bf16-true"):
+    elif "bf16" not in config and precision in {"bf16-mixed", "bf16-true"}:
         rank_zero_info("Enabling DeepSpeed BF16. Model parameters and inputs will be cast to `bfloat16`.")
         config["bf16"] = {"enabled": True}

@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     @fastapi_service.get("/file")
     async def get_file_content(request: Request, response_class=HTMLResponse):
-        lines = "\n".join(["<p>" + line + "</p>" for line in content])
+        lines = "\n".join([f"<p>{line}</p>" for line in content])
         return HTMLResponse(f"<html><head></head><body><ul>{lines}</ul></body></html>")
 
     uvicorn.run(app=fastapi_service, host=hparams.host, port=hparams.port)

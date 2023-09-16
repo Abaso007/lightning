@@ -453,9 +453,7 @@ class CloudRuntime(Runtime):
     def _resolve_env_root(self) -> Optional[Path]:
         """Determine whether the root of environment sync files exists."""
         root = Path(SYS_CUSTOMIZATIONS_SYNC_ROOT)
-        if root.exists():
-            return root
-        return None
+        return root if root.exists() else None
 
     def _resolve_open_ignore_functions(self) -> List[_IGNORE_FUNCTION]:
         """Used by the ``open`` method.
@@ -484,8 +482,7 @@ class CloudRuntime(Runtime):
         if self.app is not None:
             flow_lightningignores = [flow.lightningignore for flow in self.app.flows]
             work_lightningignores = [work.lightningignore for work in self.app.works]
-            lightningignores = flow_lightningignores + work_lightningignores
-            if lightningignores:
+            if lightningignores := flow_lightningignores + work_lightningignores:
                 merged = sum(lightningignores, ())
                 logger.debug(f"Found the following lightningignores: {merged}")
                 patterns = _parse_lightningignore(merged)
@@ -528,7 +525,7 @@ class CloudRuntime(Runtime):
 
         # 2. Use the project bindings
         # TODO: Use the user prefered cluster.
-        if cluster_id is None and len(existing_cloudspaces) > 0:
+        if cluster_id is None and existing_cloudspaces:
             # Determine the cluster ID
             cluster_id = _get_default_cluster(self.backend.client, project_id)
         return cluster_id
@@ -567,10 +564,12 @@ class CloudRuntime(Runtime):
         existing_cloudspaces: List[V1CloudSpace],
     ) -> str:
         """If there are existing cloudspaces but not on the cluster - choose a randomised name."""
-        if len(existing_cloudspaces) > 0 and existing_cloudspace is None:
+        if existing_cloudspaces and existing_cloudspace is None:
             name_exists = True
             while name_exists:
-                random_name = cloudspace_name + "-" + "".join(random.sample(string.ascii_letters, 4))
+                random_name = f"{cloudspace_name}-" + "".join(
+                    random.sample(string.ascii_letters, 4)
+                )
                 name_exists = any(app.name == random_name for app in existing_cloudspaces)
 
             cloudspace_name = random_name
@@ -582,10 +581,10 @@ class CloudRuntime(Runtime):
         existing_instances: List[Externalv1LightningappInstance],
     ) -> str:
         """If there are existing instances with the same name - choose a randomised name."""
-        if len(existing_instances) > 0:
+        if existing_instances:
             name_exists = True
             while name_exists:
-                random_name = name + "-" + "".join(random.sample(string.ascii_letters, 4))
+                random_name = f"{name}-" + "".join(random.sample(string.ascii_letters, 4))
                 name_exists = any(app.name == random_name for app in existing_instances)
 
             name = random_name
@@ -635,9 +634,9 @@ class CloudRuntime(Runtime):
         mb = 1000_000
         app_folder_size_in_mb = sum(file_sizes.values()) / mb
         if app_folder_size_in_mb > CLOUD_UPLOAD_WARNING:
-            # filter out files under 0.01mb
-            relevant_files = {f: sz for f, sz in file_sizes.items() if sz > 0.01 * mb}
-            if relevant_files:
+            if relevant_files := {
+                f: sz for f, sz in file_sizes.items() if sz > 0.01 * mb
+            }:
                 by_largest = dict(sorted(relevant_files.items(), key=lambda x: x[1], reverse=True))
                 by_largest = dict(list(by_largest.items())[:25])  # trim
                 largest_paths_msg = "\n".join(
@@ -647,9 +646,7 @@ class CloudRuntime(Runtime):
             else:
                 largest_paths_msg = ""
             warning_msg = (
-                f"Your application folder '{root.absolute()}' is more than {CLOUD_UPLOAD_WARNING} MB. "
-                f"The total size is {round(app_folder_size_in_mb, 2)} MB. {len(files)} files were uploaded.\n"
-                + largest_paths_msg
+                f"Your application folder '{root.absolute()}' is more than {CLOUD_UPLOAD_WARNING} MB. The total size is {round(app_folder_size_in_mb, 2)} MB. {len(files)} files were uploaded.\n{largest_paths_msg}"
                 + "Perhaps you should try running the app in an empty directory.\n"
                 + "You can ignore some files or folders by adding them to `.lightningignore`.\n"
                 + " You can also set the `self.lightningingore` attribute in a Flow or Work."
@@ -720,8 +717,7 @@ class CloudRuntime(Runtime):
             for _ in range(DEFAULT_NUMBER_OF_EXPOSED_PORTS):
                 network_configs.append(
                     V1NetworkConfig(
-                        name="w" + str(initial_port),
-                        port=initial_port,
+                        name=f"w{str(initial_port)}", port=initial_port
                     )
                 )
                 initial_port += 1
@@ -730,26 +726,26 @@ class CloudRuntime(Runtime):
     @staticmethod
     def _get_drives(work: LightningWork) -> List[V1LightningworkDrives]:
         """Get the list of drive specifications for the provided work."""
-        drives: List[V1LightningworkDrives] = []
-        for drive_attr_name, drive in [
-            (k, getattr(work, k)) for k in work._state if isinstance(getattr(work, k), Drive)
-        ]:
-            drives.append(
-                V1LightningworkDrives(
-                    drive=V1Drive(
-                        metadata=V1Metadata(
-                            name=f"{work.name}.{drive_attr_name}",
-                        ),
-                        spec=V1DriveSpec(
-                            drive_type=V1DriveType.NO_MOUNT_S3,
-                            source_type=V1SourceType.S3,
-                            source=f"{drive.protocol}{drive.id}",
-                        ),
-                        status=V1DriveStatus(),
+        drives: List[V1LightningworkDrives] = [
+            V1LightningworkDrives(
+                drive=V1Drive(
+                    metadata=V1Metadata(
+                        name=f"{work.name}.{drive_attr_name}",
                     ),
+                    spec=V1DriveSpec(
+                        drive_type=V1DriveType.NO_MOUNT_S3,
+                        source_type=V1SourceType.S3,
+                        source=f"{drive.protocol}{drive.id}",
+                    ),
+                    status=V1DriveStatus(),
                 ),
             )
-
+            for drive_attr_name, drive in [
+                (k, getattr(work, k))
+                for k in work._state
+                if isinstance(getattr(work, k), Drive)
+            ]
+        ]
         return drives
 
     @staticmethod
@@ -758,23 +754,27 @@ class CloudRuntime(Runtime):
         mounts = []
         if work.cloud_compute.mounts is not None:
             mount_objects = work.cloud_compute.mounts
-            for mount in [mount_objects] if isinstance(mount_objects, Mount) else mount_objects:
-                mounts.append(
-                    V1LightningworkDrives(
-                        drive=V1Drive(
-                            metadata=V1Metadata(
-                                name=work.name,
-                            ),
-                            spec=V1DriveSpec(
-                                drive_type=V1DriveType.INDEXED_S3,
-                                source_type=V1SourceType.S3,
-                                source=mount.source,
-                            ),
-                            status=V1DriveStatus(),
+            mounts.extend(
+                V1LightningworkDrives(
+                    drive=V1Drive(
+                        metadata=V1Metadata(
+                            name=work.name,
                         ),
-                        mount_location=str(mount.mount_path),
-                    )
+                        spec=V1DriveSpec(
+                            drive_type=V1DriveType.INDEXED_S3,
+                            source_type=V1SourceType.S3,
+                            source=mount.source,
+                        ),
+                        status=V1DriveStatus(),
+                    ),
+                    mount_location=str(mount.mount_path),
                 )
+                for mount in (
+                    [mount_objects]
+                    if isinstance(mount_objects, Mount)
+                    else mount_objects
+                )
+            )
         return mounts
 
     def _get_works(self, cloudspace: Optional[V1CloudSpace] = None) -> List[V1Work]:

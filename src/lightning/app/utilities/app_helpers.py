@@ -151,9 +151,7 @@ class _LightningAppRef:
 
     @classmethod
     def get_current(cls) -> Optional["LightningApp"]:
-        if cls._app_instance:
-            return cls._app_instance
-        return None
+        return cls._app_instance if cls._app_instance else None
 
 
 def affiliation(component: "Component") -> Tuple[str, ...]:
@@ -268,8 +266,8 @@ def is_overridden(method_name: str, instance: Optional[object] = None, parent: O
             parent = lightning.app.LightningFlow
         elif isinstance(instance, lightning.app.LightningWork):
             parent = lightning.app.LightningWork
-        if parent is None:
-            raise ValueError("Expected a parent")
+    if parent is None:
+        raise ValueError("Expected a parent")
     from lightning_utilities.core.overrides import is_overridden
 
     return is_overridden(method_name, instance, parent)
@@ -318,8 +316,6 @@ def _delta_to_app_state_delta(root: "LightningFlow", component: "Component", del
     delta_dict = delta.to_dict()
     for changed in delta_dict.values():
         for delta_key in changed.copy():
-            val = changed[delta_key]
-
             new_prefix = "root"
             for p, c in _walk_to_component(root, component):
                 if isinstance(c, lightning.app.core.LightningWork):
@@ -337,6 +333,8 @@ def _delta_to_app_state_delta(root: "LightningFlow", component: "Component", del
             delta_key_without_root = delta_key[4:]  # the first 4 chars are the word 'root', strip it
             new_key = new_prefix + delta_key_without_root
             if new_key != delta_key:
+                val = changed[delta_key]
+
                 changed[new_key] = val
                 del changed[delta_key]
 
@@ -450,10 +448,8 @@ class Logger:
 
 
 def _state_dict(flow: "LightningFlow"):
-    state = {}
     flows = [flow] + list(flow.flows.values())
-    for f in flows:
-        state[f.name] = f.state_dict()
+    state = {f.name: f.state_dict() for f in flows}
     for w in flow.works():
         state[w.name] = w.state
     return state
@@ -488,12 +484,14 @@ def _load_state_dict(root_flow: "LightningFlow", state: Dict[str, Any], strict: 
         for idx in range(0, len(affiliation)):
             parent_name = ".".join(affiliation[:-idx])
             has_matched = False
-            for flow_name, flow in flow_map.items():
+            for flow_name in flow_map:
                 if flow_name == parent_name:
                     if flow_name not in dynamic_children_state:
                         dynamic_children_state[flow_name] = {}
 
-                    dynamic_children_state[flow_name].update({name.replace(parent_name + ".", ""): component_state})
+                    dynamic_children_state[flow_name].update(
+                        {name.replace(f"{parent_name}.", ""): component_state}
+                    )
                     has_matched = True
                     break
             if has_matched:

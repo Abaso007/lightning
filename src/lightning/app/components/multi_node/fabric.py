@@ -54,7 +54,7 @@ class _FabricRunExecutor(_PyTorchSpawnRunExecutor):
                 fabrics.append(pkg.Fabric)
                 strategies.append(pkg.strategies.DDPStrategy)
                 mps_accelerators.append(pkg.accelerators.MPSAccelerator)
-            except (ImportError, ModuleNotFoundError):
+            except ImportError:
                 continue
 
         # Used to configure PyTorch progress group

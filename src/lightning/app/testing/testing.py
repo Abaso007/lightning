@@ -129,9 +129,7 @@ class LightningTestApp(LightningApp):
             return before_done
         done = super().run_once()
         after_done = self.on_after_run_once()
-        if after_done is not None:
-            return after_done
-        return done
+        return after_done if after_done is not None else done
 
     def kill_work(self, work_name: str, sleep_time: int = 1):
         """Use this method to kill a specific work by its name."""
@@ -226,7 +224,7 @@ def _fetch_app_by_name(client, project_id, name):
         for app in client.lightningapp_instance_service_list_lightningapp_instances(project_id=project_id).lightningapps
         if app.name == name or getattr(app, "display_name", None) == name
     ]
-    if not len(lit_apps) == 1:
+    if len(lit_apps) != 1:
         raise ValueError(f"Expected to find just one app, found {len(lit_apps)}")
     return lit_apps[0]
 
@@ -240,9 +238,7 @@ def run_app_in_cloud(
     # 1. Validate the provide app_folder is correct.
     if not os.path.exists(os.path.join(app_folder, app_name)):
         raise Exception(f"The app folder should contain an {app_name} file.")
-    if app_folder.endswith("/"):
-        app_folder = app_folder[:-1]
-
+    app_folder = app_folder.removesuffix("/")
     # 2. Create the right application name.
     basename = app_folder.split("/")[-1]
     PR_NUMBER = os.getenv("PR_NUMBER", None)
@@ -255,9 +251,9 @@ def run_app_in_cloud(
     os.environ["TEST_APP_NAME"] = TEST_APP_NAME
 
     if PR_NUMBER:
-        name = f"test-{PR_NUMBER}-{TEST_APP_NAME}-" + str(int(time.time()))
+        name = f"test-{PR_NUMBER}-{TEST_APP_NAME}-{int(time.time())}"
     else:
-        name = f"test-{TEST_APP_NAME}-" + str(int(time.time()))
+        name = f"test-{TEST_APP_NAME}-{int(time.time())}"
 
     os.environ["LIGHTNING_APP_NAME"] = name
 
@@ -265,7 +261,7 @@ def run_app_in_cloud(
     if url.endswith("/"):
         url = url[:-1]
     payload = {"apiKey": _Config.api_key, "username": _Config.username}
-    url_login = url + "/v1/auth/login"
+    url_login = f"{url}/v1/auth/login"
     res = requests.post(url_login, data=json.dumps(payload))
     if "token" not in res.json():
         raise RuntimeError(
@@ -313,7 +309,7 @@ def run_app_in_cloud(
         # Fallback URL to prevent failures in case we don't get the admin URL
         admin_url = _Config.url
         with open(stdout_path) as fo:
-            for line in fo.readlines():
+            for line in fo:
                 if line.startswith("APP_LOGS_URL: "):
                     admin_url = line.replace("APP_LOGS_URL: ", "")
                     break
@@ -323,7 +319,7 @@ def run_app_in_cloud(
             # Otherwise, it could result in un-tested PRs.
             pkg_found = False
             with open(stdout_path) as fo:
-                for line in fo.readlines():
+                for line in fo:
                     if "Packaged Lightning with your application" in line:
                         pkg_found = True
                     print(line)  # TODO: use logging
@@ -418,9 +414,7 @@ def run_app_in_cloud(
                 def add_prefix(c: str) -> str:
                     if c == "flow":
                         return c
-                    if not c.startswith("root."):
-                        return "root." + c
-                    return c
+                    return f"root.{c}" if not c.startswith("root.") else c
 
                 component_names = [add_prefix(c) for c in component_names]
 
@@ -455,8 +449,7 @@ def wait_for(page, callback: Callable, *args: Any, **kwargs: Any) -> Any:
 
     while True:
         try:
-            res = callback(*args, **kwargs)
-            if res:
+            if res := callback(*args, **kwargs):
                 return res
         except (playwright._impl._api_types.Error, playwright._impl._api_types.TimeoutError) as err:
             print(err)
@@ -465,7 +458,6 @@ def wait_for(page, callback: Callable, *args: Any, **kwargs: Any) -> Any:
                 page.reload()
             except (playwright._impl._api_types.Error, playwright._impl._api_types.TimeoutError) as err:
                 print(err)
-                pass
             sleep(3)
 
 
@@ -517,7 +509,11 @@ def delete_cloud_lightning_apps(name=None):
 
     if pr_number and app_name:
         for lit_app in list_apps.lightningapps:
-            if name == lit_app.name or (str(pr_number) in lit_app.name and app_name in lit_app.name):
+            if (
+                name == lit_app.name
+                or pr_number in lit_app.name
+                and app_name in lit_app.name
+            ):
                 _delete_lightning_app(client, project_id=project_id, app_id=lit_app.id, app_name=lit_app.name)
                 _delete_cloud_space(
                     client, project_id=project_id, cloud_space_id=lit_app.spec.cloud_space_id, app_name=lit_app.name

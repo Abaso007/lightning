@@ -339,33 +339,30 @@ class LightningApp:
         t0 = time()
 
         while (time() - t0) < self.state_accumulate_wait:
-            # TODO: Fetch all available deltas at once to reduce queue calls.
-            delta: Optional[
-                Union[_DeltaRequest, _APIRequest, _CommandRequest, ComponentDelta]
-            ] = self.get_state_changed_from_queue(
-                self.delta_queue  # type: ignore[assignment,arg-type]
-            )
-            if delta:
-                if isinstance(delta, _DeltaRequest):
-                    deltas.append(delta.delta)
-                elif isinstance(delta, ComponentDelta):
-                    logger.debug(f"Received from {delta.id} : {delta.delta.to_dict()}")
-                    work = None
-                    try:
-                        work = self.get_component_by_name(delta.id)
-                    except (KeyError, AttributeError) as ex:
-                        logger.error(f"The component {delta.id} couldn't be accessed. Exception: {ex}")
-
-                    if work:
-                        delta = _delta_to_app_state_delta(
-                            self.root, work, deepcopy(delta.delta)  # type: ignore[arg-type]
-                        )
-                        deltas.append(delta)
-                else:
-                    api_or_command_request_deltas.append(delta)
-            else:
+            if not (
+                delta := self.get_state_changed_from_queue(
+                    self.delta_queue  # type: ignore[assignment,arg-type]
+                )
+            ):
                 break
 
+            if isinstance(delta, _DeltaRequest):
+                deltas.append(delta.delta)
+            elif isinstance(delta, ComponentDelta):
+                logger.debug(f"Received from {delta.id} : {delta.delta.to_dict()}")
+                work = None
+                try:
+                    work = self.get_component_by_name(delta.id)
+                except (KeyError, AttributeError) as ex:
+                    logger.error(f"The component {delta.id} couldn't be accessed. Exception: {ex}")
+
+                if work:
+                    delta = _delta_to_app_state_delta(
+                        self.root, work, deepcopy(delta.delta)  # type: ignore[arg-type]
+                    )
+                    deltas.append(delta)
+            else:
+                api_or_command_request_deltas.append(delta)
         if api_or_command_request_deltas:
             _process_requests(self, api_or_command_request_deltas)
 
@@ -538,11 +535,13 @@ class LightningApp:
     def _update_status(self) -> None:
         old_status = self.status
 
-        work_statuses = {}
         assert self.root is not None
-        for work in breadth_first(self.root, types=(lightning.app.LightningWork,)):  # type: ignore[arg-type]
-            work_statuses[work.name] = work.status
-
+        work_statuses = {
+            work.name: work.status
+            for work in breadth_first(
+                self.root, types=(lightning.app.LightningWork,)
+            )
+        }
         self.status = AppStatus(
             is_ui_ready=self.ready,
             work_statuses=work_statuses,
@@ -574,8 +573,7 @@ class LightningApp:
         if len(self.works) == 0:
             return True
         if self._has_updated:
-            work_finished_status = self._collect_work_finish_status()
-            if work_finished_status:
+            if work_finished_status := self._collect_work_finish_status():
                 return all(work_finished_status.values())
             return True
         return False

@@ -28,7 +28,7 @@ class HelloWorldUser(FastHttpUser):
         # Split data into train and test subsets
         _, X_test, _, _ = train_test_split(data, digits.target, test_size=0.5, shuffle=False)
 
-        x_0 = X_test[0:1]
+        x_0 = X_test[:1]
         self.inference_request = {
             "inputs": [
                 {

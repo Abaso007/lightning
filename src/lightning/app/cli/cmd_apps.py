@@ -112,10 +112,11 @@ class _AppList(Formatable):
             return Text("terminating", style="bold red")
 
         if (
-            any(
-                phase == current_state.phase
-                for phase in [V1LightningappInstanceState.PENDING, V1LightningappInstanceState.STOPPED]
-            )
+            current_state.phase
+            in [
+                V1LightningappInstanceState.PENDING,
+                V1LightningappInstanceState.STOPPED,
+            ]
             and desired_state == V1LightningappInstanceState.RUNNING
         ):
             return Text("restarting", style="bold yellow")

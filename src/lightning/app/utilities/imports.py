@@ -40,9 +40,9 @@ def _get_extras(extras: str) -> str:
 
     requirements = {r: Requirement(r) for r in metadata.requires(__package_name__)}
     marker = Marker(f'extra == "{extras}"')
-    requirements = [r for r, req in requirements.items() if str(req.marker) == str(marker)]
-
-    if requirements:
+    if requirements := [
+        r for r, req in requirements.items() if str(req.marker) == str(marker)
+    ]:
         requirements = [f"'{r.split(';')[0].strip()}'" for r in requirements]
         return " ".join(requirements)
     return ""

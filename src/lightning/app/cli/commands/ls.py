@@ -79,7 +79,7 @@ def ls(path: Optional[str] = None, print: bool = True, use_live: bool = True) ->
         project = [project for project in projects.memberships if project.name == splits[0]]
 
         # This happens if the user changes cluster and the project doesn't exit.
-        if len(project) == 0:
+        if not project:
             return _error_and_exit(
                 f"There isn't any Lightning Project matching the name {splits[0]}." " HINT: Use `lightning cd`."
             )
@@ -105,11 +105,11 @@ def ls(path: Optional[str] = None, print: bool = True, use_live: bool = True) ->
 
         lit_ressources = [lit_resource for lit_resource in lit_cloud_spaces if lit_resource.name == splits[1]]
 
-        if len(lit_ressources) == 0:
+        if not lit_ressources:
             lit_ressources = [lit_resource for lit_resource in lit_apps if lit_resource.name == splits[1]]
 
-            if len(lit_ressources) == 0:
-                _error_and_exit(f"There isn't any Lightning Ressource matching the name {splits[1]}.")
+        if not lit_ressources:
+            _error_and_exit(f"There isn't any Lightning Ressource matching the name {splits[1]}.")
 
         lit_resource = lit_ressources[0]
 
@@ -148,9 +148,8 @@ def ls(path: Optional[str] = None, print: bool = True, use_live: bool = True) ->
 
     if print:
         if app_paths and cloud_spaces_paths:
-            if app_paths:
-                rich.print("Lightning App")
-                _print_names_with_colors(app_paths, app_colors)
+            rich.print("Lightning App")
+            _print_names_with_colors(app_paths, app_colors)
 
             if cloud_spaces_paths:
                 rich.print("Lightning CloudSpaces")
@@ -171,11 +170,7 @@ def _print_names_with_colors(names: List[str], colors: List[str], padding: int =
 
     max_L = max([len(name) for name in names] + [0]) + padding
 
-    use_spacing = False
-
-    if max_L * len(names) < width:
-        use_spacing = True
-
+    use_spacing = max_L * len(names) < width
     num_cols = width // max_L
 
     columns = {}
@@ -257,7 +252,7 @@ def _add_resource_prefix(prefix: str, resource_path: str):
         return prefix
     prefix = os.path.join(resource_path, prefix)
     if not prefix.startswith("/"):
-        prefix = "/" + prefix
+        prefix = f"/{prefix}"
     return prefix
 
 

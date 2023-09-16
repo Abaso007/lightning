@@ -93,10 +93,7 @@ def move_data_to_device(batch: Any, device: _DEVICE) -> Any:
         if isinstance(data, Tensor) and isinstance(device, torch.device) and device.type not in _BLOCKING_DEVICE_TYPES:
             kwargs["non_blocking"] = True
         data_output = data.to(device, **kwargs)
-        if data_output is not None:
-            return data_output
-        # user wrongly implemented the `_TransferableDataType` and forgot to return `self`.
-        return data
+        return data_output if data_output is not None else data
 
     return apply_to_collection(batch, dtype=_TransferableDataType, function=batch_to)
 

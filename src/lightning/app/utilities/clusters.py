@@ -43,10 +43,11 @@ def _get_default_cluster(client: LightningClient, project_id: str) -> str:
             # If we failed to get the cluster, ignore it
             continue
 
-    # Filter global clusters
-    clusters = [cluster for cluster in clusters if cluster.spec.cluster_type == V1ClusterType.GLOBAL]
-
-    if len(clusters) == 0:
+    if clusters := [
+        cluster
+        for cluster in clusters
+        if cluster.spec.cluster_type == V1ClusterType.GLOBAL
+    ]:
+        return random.choice(clusters).id  # noqa: S311
+    else:
         raise RuntimeError(f"No clusters found on `{client.api_client.configuration.host}`.")
-
-    return random.choice(clusters).id  # noqa: S311

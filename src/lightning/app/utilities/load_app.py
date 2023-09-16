@@ -231,7 +231,7 @@ def _add_to_env(envs: Dict[str, str]):
         yield
     finally:
         os.environ.clear()
-        os.environ.update(original_envs)
+        os.environ |= original_envs
 
 
 @contextmanager
@@ -298,6 +298,7 @@ def component_to_metadata(obj: Union["LightningWork", "LightningFlow"]) -> Dict:
 
 
 def extract_metadata_from_app(app: "LightningApp") -> List:
-    metadata = {flow.name: component_to_metadata(flow) for flow in app.flows}
-    metadata.update({work.name: component_to_metadata(work) for work in app.works})
+    metadata = {
+        flow.name: component_to_metadata(flow) for flow in app.flows
+    } | {work.name: component_to_metadata(work) for work in app.works}
     return [metadata[key] for key in sorted(metadata.keys())]

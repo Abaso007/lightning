@@ -47,7 +47,7 @@ class Flow(LightningFlow):
             work.run()
 
     def configure_layout(self):
-        return [{"name": w.name, "content": w} for i, w in enumerate(self.works())]
+        return [{"name": w.name, "content": w} for w in self.works()]
 
 
 app = LightningApp(Flow(), log_level="debug")

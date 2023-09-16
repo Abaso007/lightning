@@ -53,7 +53,11 @@ class _FabricOptimizer:
         self._strategy = strategy
         self._callbacks = callbacks or []
         # imitate the class of the wrapped object to make isinstance checks work
-        self.__class__ = type("Fabric" + optimizer.__class__.__name__, (self.__class__, optimizer.__class__), {})
+        self.__class__ = type(
+            f"Fabric{optimizer.__class__.__name__}",
+            (self.__class__, optimizer.__class__),
+            {},
+        )
 
     @property
     def optimizer(self) -> Optimizer:
@@ -260,15 +264,13 @@ class _FabricDataLoader:
 
 def _unwrap_objects(collection: Any) -> Any:
     def _unwrap(
-        obj: Union[_FabricModule, _FabricOptimizer, _FabricDataLoader]
-    ) -> Union[nn.Module, Optimizer, DataLoader]:
+            obj: Union[_FabricModule, _FabricOptimizer, _FabricDataLoader]
+        ) -> Union[nn.Module, Optimizer, DataLoader]:
         if isinstance(unwrapped := _unwrap_compiled(obj), _FabricModule):
             return unwrapped._forward_module
         if isinstance(obj, _FabricOptimizer):
             return obj.optimizer
-        if isinstance(obj, _FabricDataLoader):
-            return obj._dataloader
-        return obj
+        return obj._dataloader if isinstance(obj, _FabricDataLoader) else obj
 
     types = [_FabricModule, _FabricOptimizer, _FabricDataLoader]
     if _TORCH_GREATER_EQUAL_2_0:
@@ -289,9 +291,7 @@ def _unwrap_compiled(obj: Any) -> Any:
         return obj
     from torch._dynamo import OptimizedModule
 
-    if isinstance(obj, OptimizedModule):
-        return obj._orig_mod
-    return obj
+    return obj._orig_mod if isinstance(obj, OptimizedModule) else obj
 
 
 def is_wrapped(obj: object) -> bool:

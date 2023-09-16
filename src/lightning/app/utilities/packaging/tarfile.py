@@ -32,7 +32,7 @@ def clean_tarfile(file_path: str, mode: str) -> None:
                     os.remove(p)
                 else:
                     shutil.rmtree(p)
-            except (FileNotFoundError, OSError, PermissionError):
+            except OSError:
                 pass
 
     if os.path.exists(file_path):

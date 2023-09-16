@@ -113,9 +113,7 @@ def rank_zero_experiment(fn: Callable) -> Callable:
             types that are specific to the custom logger. The return type here can be considered as
             ``Union[return type of logger.experiment, _DummyExperiment]``.
         """
-        if rank_zero_only.rank > 0:
-            return _DummyExperiment()
-        return fn(self)
+        return _DummyExperiment() if rank_zero_only.rank > 0 else fn(self)
 
     return experiment
 

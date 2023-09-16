@@ -29,11 +29,11 @@ def _names_to_ids(secret_names: Iterable[str]) -> Dict[str, str]:
     project = _get_project(lightning_client)
     secrets = lightning_client.secret_service_list_secrets(project_id=project.project_id)
 
-    secret_names_to_ids: Dict[str, str] = {}
-    for secret in secrets.secrets:
-        if secret.name in secret_names:
-            secret_names_to_ids[secret.name] = secret.id
-
+    secret_names_to_ids: Dict[str, str] = {
+        secret.name: secret.id
+        for secret in secrets.secrets
+        if secret.name in secret_names
+    }
     for secret_name in secret_names:
         if secret_name not in secret_names_to_ids.keys():
             raise ValueError(f"Secret with name '{secret_name}' not found")

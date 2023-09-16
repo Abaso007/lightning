@@ -81,7 +81,7 @@ class PyTorchLightningScriptRunner(TracerPythonScript):
             "PL_TRAINER_ACCELERATOR": "auto",
         }
 
-        os.environ.update(distributed_env_vars)
+        os.environ |= distributed_env_vars
         return super().run(**kwargs)
 
     def on_after_run(self, script_globals):

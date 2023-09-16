@@ -371,12 +371,16 @@ class MyCustomTrainer:
         if isinstance(self._current_train_return, torch.Tensor):
             possible_monitor_vals.update("train_loss", self._current_train_return)
         elif isinstance(self._current_train_return, Mapping):
-            possible_monitor_vals.update({"train_" + k: v for k, v in self._current_train_return.items()})
+            possible_monitor_vals |= {
+                f"train_{k}": v for k, v in self._current_train_return.items()
+            }
 
         if isinstance(self._current_val_return, torch.Tensor):
             possible_monitor_vals.update("val_loss", self._current_val_return)
         elif isinstance(self._current_val_return, Mapping):
-            possible_monitor_vals.update({"val_" + k: v for k, v in self._current_val_return.items()})
+            possible_monitor_vals |= {
+                f"val_{k}": v for k, v in self._current_val_return.items()
+            }
 
         try:
             monitor = possible_monitor_vals[cast(Optional[str], scheduler_cfg["monitor"])]
@@ -449,10 +453,7 @@ class MyCustomTrainer:
 
         items = sorted(os.listdir(checkpoint_dir))
 
-        if not items:
-            return None
-
-        return os.path.join(checkpoint_dir, items[-1])
+        return None if not items else os.path.join(checkpoint_dir, items[-1])
 
     def _parse_optimizers_schedulers(
         self, configure_optim_output
@@ -479,7 +480,7 @@ class MyCustomTrainer:
 
         # single lr scheduler config
         if isinstance(configure_optim_output, Mapping):
-            _lr_sched_defaults.update(configure_optim_output)
+            _lr_sched_defaults |= configure_optim_output
             return None, _lr_sched_defaults
 
         # list or tuple

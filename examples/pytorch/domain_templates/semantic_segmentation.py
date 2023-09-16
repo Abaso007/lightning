@@ -132,10 +132,7 @@ class KITTI(Dataset):
 
     def get_filenames(self, path):
         """Returns a list of absolute paths to images inside given `path`"""
-        files_list = []
-        for filename in os.listdir(path):
-            files_list.append(os.path.join(path, filename))
-        return files_list
+        return [os.path.join(path, filename) for filename in os.listdir(path)]
 
 
 class UNet(nn.Module):
@@ -186,8 +183,7 @@ class UNet(nn.Module):
     def forward(self, x):
         xi = [self.layers[0](x)]
         # Down path
-        for layer in self.layers[1 : self.num_layers]:
-            xi.append(layer(xi[-1]))
+        xi.extend(layer(xi[-1]) for layer in self.layers[1 : self.num_layers])
         # Up path
         for i, layer in enumerate(self.layers[self.num_layers : -1]):
             xi[-1] = layer(xi[-1], xi[-2 - i])

@@ -30,7 +30,7 @@ class Locust(LightningWork):
                 "--master-port",
                 str(self.port),
                 "--host",
-                str(load_tested_url),
+                load_tested_url,
                 "-u",
                 str(self.num_users),
             ]

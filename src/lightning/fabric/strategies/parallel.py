@@ -98,7 +98,7 @@ class ParallelStrategy(Strategy, ABC):
             decision,
             reduce_op=ReduceOp.SUM,  # type: ignore[arg-type]
         )
-        decision = bool(decision == self.world_size) if all else bool(decision)
+        decision = decision == self.world_size if all else bool(decision)
         return decision
 
     def teardown(self) -> None:

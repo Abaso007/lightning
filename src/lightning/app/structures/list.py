@@ -92,8 +92,7 @@ class List(t.List[T]):
 
         works = [item for item in self if isinstance(item, LightningWork)]
         for flow in [item for item in self if isinstance(item, LightningFlow)]:
-            for child_work in flow.works(recurse=False):
-                works.append(child_work)
+            works.extend(iter(flow.works(recurse=False)))
         return works
 
     @property

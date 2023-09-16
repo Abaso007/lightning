@@ -55,7 +55,7 @@ class BoringApp(LightningFlow):
             self.stop("Boring App End")
 
     def configure_layout(self):
-        return {"name": "Boring Tab", "content": self.dest_work.url + "/file"}
+        return {"name": "Boring Tab", "content": f"{self.dest_work.url}/file"}
 
 
 app = LightningApp(BoringApp())

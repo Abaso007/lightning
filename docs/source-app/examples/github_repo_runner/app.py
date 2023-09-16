@@ -85,6 +85,8 @@ class PyTorchLightningGithubRepoRunner(GithubRepoRunner):
 
         tracer = super().configure_tracer()
 
+
+
         class TensorboardServerLauncher(Callback):
             def __init__(self, work):
                 # The provided `work` is the
@@ -95,7 +97,8 @@ class PyTorchLightningGithubRepoRunner(GithubRepoRunner):
                 # Add `host` and `port` for tensorboard to work in the cloud.
                 cmd = f"tensorboard --logdir='{trainer.logger.log_dir}'"
                 server_args = f"--host {self.w.host} --port {self.w.port}"
-                Popen(cmd + " " + server_args, shell=True)
+                Popen(f"{cmd} {server_args}", shell=True)
+
 
         def trainer_pre_fn(self, *args, work=None, **kwargs):
             # Intercept Trainer __init__ call
@@ -221,10 +224,7 @@ def page_1__create_new_run(state):
         st.write(f"{ml_framework} isn't supported yet.")
         return
 
-    clicked = st.button("Submit")
-
-    # 2: If clicked, create a new request.
-    if clicked:
+    if clicked := st.button("Submit"):
         new_request = {
             "id": id,
             "train": {
@@ -258,8 +258,7 @@ def page_2__view_run_lists(state):
             if st.checkbox("Expand to view your work state", key=i):
                 work["vars"].pop("logs")
                 st.json(work)
-            best_model_score = r.get("best_model_score", None)
-            if best_model_score:
+            if best_model_score := r.get("best_model_score", None):
                 if st.checkbox("Expand to view your run performance", key=i):
                     st.json({"best_model_score": best_model_score, "best_model_path": r.get("best_model_path")})
 

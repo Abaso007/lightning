@@ -136,7 +136,7 @@ class S3LightningImagenetDataset(LightningDataset):
         super().__init__(data_source=data_source, backend="s3", path_to_index_file=path_to_index_file)
 
         # only get files for the split
-        self.files = tuple([x for x in self.files if split in x])
+        self.files = tuple(x for x in self.files if split in x)
 
         # get unique classes
         self.classes = _IMAGENET_CATEGORIES
@@ -161,7 +161,6 @@ class S3LightningImagenetDataset(LightningDataset):
             return img, cls_idx
         except Exception:
             print(file_path, traceback.print_exc())
-            pass
 
 
 if __name__ == "__main__":

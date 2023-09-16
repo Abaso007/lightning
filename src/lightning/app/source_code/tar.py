@@ -158,9 +158,9 @@ def _tar_path_python(source_path: str, target_file: str, compression: bool = Fal
 
     with tarfile.open(target_file, file_mode) as tar:
         if os.path.isdir(source_path):
-            tar.add(str(source_path), arcname=".")
+            tar.add(source_path, arcname=".")
         elif os.path.isfile(source_path):
-            file_info = tarfile.TarInfo(os.path.basename(str(source_path)))
+            file_info = tarfile.TarInfo(os.path.basename(source_path))
             with open(source_path) as fo:
                 tar.addfile(file_info, fo)
 
@@ -178,12 +178,7 @@ def _tar_path_subprocess(source_path: str, target_file: str, compression: bool =
         Enable compression, which is disabled by default.
 
     """
-    # Only add compression when users explicitly request it.
-    # We do this because it takes too long to compress
-    # large datastores.
-    tar_flags = "-cvf"
-    if compression:
-        tar_flags = "-zcvf"
+    tar_flags = "-zcvf" if compression else "-cvf"
     if os.path.isdir(source_path):
         command = f"tar -C {source_path} {tar_flags} {target_file} ./"
     else:

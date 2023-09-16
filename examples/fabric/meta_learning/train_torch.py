@@ -41,7 +41,7 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
     evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
 
     # Adapt the model
-    for step in range(adaptation_steps):
+    for _ in range(adaptation_steps):
         train_error = loss(learner(adaptation_data), adaptation_labels)
         learner.adapt(train_error)
 
@@ -79,7 +79,7 @@ def main(
     if cuda and torch.cuda.device_count():
         torch.cuda.manual_seed(seed)
         device_id = rank % torch.cuda.device_count()
-        device = torch.device("cuda:" + str(device_id))
+        device = torch.device(f"cuda:{str(device_id)}")
 
     # Create Tasksets using the benchmark interface
     tasksets = l2l.vision.benchmarks.get_tasksets(
@@ -109,7 +109,7 @@ def main(
         meta_train_accuracy = 0.0
         meta_valid_error = 0.0
         meta_valid_accuracy = 0.0
-        for task in range(meta_batch_size):
+        for _ in range(meta_batch_size):
             # Compute meta-training loss
             learner = maml.clone()
             batch = tasksets.train.sample()
@@ -157,7 +157,7 @@ def main(
 
     meta_test_error = 0.0
     meta_test_accuracy = 0.0
-    for task in range(meta_batch_size):
+    for _ in range(meta_batch_size):
         # Compute meta-testing loss
         learner = maml.clone()
         batch = tasksets.test.sample()

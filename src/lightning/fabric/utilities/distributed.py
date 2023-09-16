@@ -69,8 +69,7 @@ def _gather_all_tensors(result: Tensor, group: Optional[Any] = None) -> List[Ten
     pad_dims = []
     pad_by = (max_size - local_size).detach().cpu()
     for val in reversed(pad_by):
-        pad_dims.append(0)
-        pad_dims.append(val.item())
+        pad_dims.extend((0, val.item()))
     result_padded = F.pad(result, pad_dims)
     gathered_result = [torch.zeros_like(result_padded) for _ in range(world_size)]
     torch.distributed.all_gather(gathered_result, result_padded, group)

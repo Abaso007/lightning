@@ -246,8 +246,9 @@ class _Connector:
                         "CheckpointIO, ClusterEnviroment."
                     )
 
-            duplicated_plugin_key = [k for k, v in plugins_flags_types.items() if v > 1]
-            if duplicated_plugin_key:
+            if duplicated_plugin_key := [
+                k for k, v in plugins_flags_types.items() if v > 1
+            ]:
                 raise ValueError(
                     f"Received multiple values for {', '.join(duplicated_plugin_key)} flags in `plugins`."
                     " Expected one value for each type at most."
@@ -313,9 +314,7 @@ class _Connector:
             return "tpu"
         if MPSAccelerator.is_available():
             return "mps"
-        if CUDAAccelerator.is_available():
-            return "cuda"
-        return "cpu"
+        return "cuda" if CUDAAccelerator.is_available() else "cpu"
 
     @staticmethod
     def _choose_gpu_accelerator_backend() -> str:
@@ -400,9 +399,7 @@ class _Connector:
                 device = "cpu"
             # TODO: lazy initialized device, then here could be self._strategy_flag = "single_device"
             return SingleDeviceStrategy(device=device)  # type: ignore
-        if len(self._parallel_devices) > 1 and _IS_INTERACTIVE:
-            return "ddp_fork"
-        return "ddp"
+        return "ddp_fork" if _IS_INTERACTIVE else "ddp"
 
     def _check_strategy_and_fallback(self) -> None:
         """Checks edge cases when the strategy selection was a string input, and we need to fall back to a different
@@ -533,7 +530,7 @@ class _Connector:
 
     @staticmethod
     def _argument_from_env(name: str, current: Any, default: Any) -> Any:
-        env_value: Optional[str] = os.environ.get("LT_" + name.upper())
+        env_value: Optional[str] = os.environ.get(f"LT_{name.upper()}")
 
         if env_value is None:
             return current
@@ -557,7 +554,7 @@ def _convert_precision_to_unified_args(precision: _PRECISION_INPUT) -> _PRECISIO
     precision = str(precision)  # convert int flags to str here to enable the legacy-conversion below
 
     if precision in get_args(_PRECISION_INPUT_STR_ALIAS):
-        if str(precision)[:2] not in ("32", "64"):
+        if precision[:2] not in ("32", "64"):
             rank_zero_warn(
                 f"`precision={precision}` is supported for historical reasons but its usage is discouraged. "
                 f"Please set your precision to {_PRECISION_INPUT_STR_ALIAS_CONVERSION[precision]} instead!"

@@ -55,10 +55,7 @@ def _sanitize_callable_params(params: Dict[str, Any]) -> Dict[str, Any]:
         if callable(val):
             try:
                 _val = val()
-                if callable(_val):
-                    return val.__name__
-                return _val
-            # todo: specify the possible exception
+                return val.__name__ if callable(_val) else _val
             except Exception:
                 return getattr(val, "__name__", None)
         return val

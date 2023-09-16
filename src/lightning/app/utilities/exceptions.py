@@ -36,16 +36,14 @@ class _ApiExceptionHandler(Group):
         try:
             return super().invoke(ctx)
         except ApiException as api:
-            exception_messages = []
-            if 400 <= api.status < 500:
-                try:
-                    body = loads(api.body)
-                except JSONDecodeError:
-                    raise api
-                exception_messages.append(body["message"])
-                exception_messages.extend(body["details"])
-            else:
+            if not 400 <= api.status < 500:
                 raise api
+            try:
+                body = loads(api.body)
+            except JSONDecodeError:
+                raise api
+            exception_messages = [body["message"]]
+            exception_messages.extend(body["details"])
             raise ClickException("\n".join(exception_messages))
 
 

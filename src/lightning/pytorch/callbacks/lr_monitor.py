@@ -155,8 +155,12 @@ class LearningRateMonitor(Callback):
         # Initialize for storing values
         names_flatten = list(itertools.chain.from_iterable(names))
         self.lrs = {name: [] for name in names_flatten}
-        self.last_momentum_values = {name + "-momentum": None for name in names_flatten}
-        self.last_weight_decay_values = {name + "-weight_decay": None for name in names_flatten}
+        self.last_momentum_values = {
+            f"{name}-momentum": None for name in names_flatten
+        }
+        self.last_weight_decay_values = {
+            f"{name}-weight_decay": None for name in names_flatten
+        }
 
     def on_train_batch_start(self, trainer: "pl.Trainer", *args: Any, **kwargs: Any) -> None:
         if not trainer._logger_connector.should_update_logs:
@@ -164,18 +168,14 @@ class LearningRateMonitor(Callback):
 
         if self.logging_interval != "epoch":
             interval = "step" if self.logging_interval is None else "any"
-            latest_stat = self._extract_stats(trainer, interval)
-
-            if latest_stat:
+            if latest_stat := self._extract_stats(trainer, interval):
                 for logger in trainer.loggers:
                     logger.log_metrics(latest_stat, step=trainer.fit_loop.epoch_loop._batches_that_stepped)
 
     def on_train_epoch_start(self, trainer: "pl.Trainer", *args: Any, **kwargs: Any) -> None:
         if self.logging_interval != "step":
             interval = "epoch" if self.logging_interval is None else "any"
-            latest_stat = self._extract_stats(trainer, interval)
-
-            if latest_stat:
+            if latest_stat := self._extract_stats(trainer, interval):
                 for logger in trainer.loggers:
                     logger.log_metrics(latest_stat, step=trainer.fit_loop.epoch_loop._batches_that_stepped)
 
@@ -193,7 +193,7 @@ class LearningRateMonitor(Callback):
             if interval in [config.interval, "any"]:
                 opt = config.scheduler.optimizer
                 current_stat = self._get_optimizer_stats(opt, name)
-                latest_stat.update(current_stat)
+                latest_stat |= current_stat
 
         optimizer_hparam_keys, optimizers_without_scheduler = self._find_names_from_optimizers(
             trainer.optimizers,
@@ -219,7 +219,7 @@ class LearningRateMonitor(Callback):
 
         for pg, name in zip(param_groups, names):
             lr = self._extract_lr(pg, name)
-            stats.update(lr)
+            stats |= lr
             momentum = self._extract_momentum(
                 param_group=pg, name=name.replace(name, f"{name}-momentum"), use_betas=use_betas
             )
@@ -267,7 +267,7 @@ class LearningRateMonitor(Callback):
         if optimizer_cls not in seen_optimizer_types:
             return name
         count = seen_optimizer_types[optimizer_cls]
-        return name + f"-{count - 1}" if count > 1 else name
+        return f"{name}-{count - 1}" if count > 1 else name
 
     def _add_suffix(self, name: str, param_groups: List[Dict], param_group_index: int, use_names: bool = True) -> str:
         if len(param_groups) > 1:
@@ -298,7 +298,11 @@ class LearningRateMonitor(Callback):
         seen_optimizer_types: DefaultDict[Type[Optimizer], int] = defaultdict(int)
         for config in lr_scheduler_configs:
             sch = config.scheduler
-            name = config.name if config.name is not None else "lr-" + sch.optimizer.__class__.__name__
+            name = (
+                config.name
+                if config.name is not None
+                else f"lr-{sch.optimizer.__class__.__name__}"
+            )
 
             updated_names = self._check_duplicates_and_update_name(
                 sch.optimizer, name, seen_optimizers, seen_optimizer_types, config
@@ -322,7 +326,7 @@ class LearningRateMonitor(Callback):
             if optimizer in seen_optimizers:
                 continue
 
-            name = "lr-" + optimizer.__class__.__name__
+            name = f"lr-{optimizer.__class__.__name__}"
             updated_names = self._check_duplicates_and_update_name(
                 optimizer, name, seen_optimizers, seen_optimizer_types, None
             )
@@ -346,8 +350,7 @@ class LearningRateMonitor(Callback):
 
         # Multiple param groups for the same optimizer
         param_groups = optimizer.param_groups
-        duplicates = self._duplicate_param_group_names(param_groups)
-        if duplicates:
+        if duplicates := self._duplicate_param_group_names(param_groups):
             raise MisconfigurationException(
                 "A single `Optimizer` cannot have multiple parameter groups with identical "
                 f"`name` values. {name} has duplicated parameter group names {duplicates}"

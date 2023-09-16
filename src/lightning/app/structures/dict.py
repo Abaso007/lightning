@@ -75,7 +75,7 @@ class Dict(t.Dict[str, T]):
         if not isinstance(k, str):
             raise Exception("The provided key should be an string")
 
-        if isinstance(k, str) and "." in k:
+        if "." in k:
             raise Exception(f"The provided name {k} contains . which is forbidden.")
 
         _set_child_name(self, v, k)
@@ -93,8 +93,7 @@ class Dict(t.Dict[str, T]):
 
         works = [item for item in self.values() if isinstance(item, LightningWork)]
         for flow in [item for item in self.values() if isinstance(item, LightningFlow)]:
-            for child_work in flow.works(recurse=False):
-                works.append(child_work)
+            works.extend(iter(flow.works(recurse=False)))
         return works
 
     @property

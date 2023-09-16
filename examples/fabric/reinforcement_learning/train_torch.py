@@ -131,7 +131,12 @@ def main(args: argparse.Namespace):
     logger = None
     run_name = f"{args.env_id}_{args.exp_name}_{args.seed}_{int(time.time())}"
     if global_rank == 0:
-        log_dir = os.path.join("logs", "torch_logs", datetime.today().strftime("%Y-%m-%d_%H-%M-%S"), run_name)
+        log_dir = os.path.join(
+            "logs",
+            "torch_logs",
+            datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+            run_name,
+        )
         logger = SummaryWriter(log_dir=log_dir)
 
     # Log hyperparameters

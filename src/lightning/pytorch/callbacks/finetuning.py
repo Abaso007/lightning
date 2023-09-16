@@ -88,11 +88,9 @@ class BaseFinetuning(Callback):
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         self._restarting = True
-        if "internal_optimizer_metadata" in state_dict:  # noqa: SIM401
-            self._internal_optimizer_metadata = state_dict["internal_optimizer_metadata"]
-        else:
-            # compatibility to load from old checkpoints before PR #11887
-            self._internal_optimizer_metadata = state_dict  # type: ignore[assignment]
+        self._internal_optimizer_metadata = state_dict.get(
+            "internal_optimizer_metadata", state_dict
+        )
 
     def on_fit_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         # restore the param_groups created during the previous training.
@@ -258,8 +256,7 @@ class BaseFinetuning(Callback):
         params_lr = optimizer.param_groups[0]["lr"] if lr is None else float(lr)
         denom_lr = initial_denom_lr if lr is None else 1.0
         params = BaseFinetuning.filter_params(modules, train_bn=train_bn, requires_grad=True)
-        params = BaseFinetuning.filter_on_optimizer(optimizer, params)
-        if params:
+        if params := BaseFinetuning.filter_on_optimizer(optimizer, params):
             optimizer.add_param_group({"params": params, "lr": params_lr / denom_lr})
 
     def setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: str) -> None:

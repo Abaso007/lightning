@@ -15,11 +15,9 @@ class Flow(LightningFlow):
         self.names.append(name)
 
     def configure_commands(self):
-        # This can be invoked with `lightning add --name=my_name`
-        commands = [
+        return [
             {"add": self.add_name},
         ]
-        return commands
 
 
 app = LightningApp(Flow())

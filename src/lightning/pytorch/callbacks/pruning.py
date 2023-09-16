@@ -412,8 +412,8 @@ class ModelPruning(Callback):
         # find the mask and the original weights.
         map_pruned_params = {k.replace("_mask", "") for k in state_dict if k.endswith("_mask")}
         for tensor_name in map_pruned_params:
-            orig = state_dict.pop(tensor_name + "_orig")
-            mask = state_dict.pop(tensor_name + "_mask")
+            orig = state_dict.pop(f"{tensor_name}_orig")
+            mask = state_dict.pop(f"{tensor_name}_mask")
             # make weights permanent
             state_dict[tensor_name] = mask.to(dtype=orig.dtype) * orig
 

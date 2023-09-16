@@ -71,9 +71,10 @@ def _format_input_env_variables(env_list: tuple) -> Dict[str, str]:
 
 
 def _is_url(id: Optional[str]) -> bool:
-    if isinstance(id, str) and (id.startswith("https://") or id.startswith("http://")):
-        return True
-    return False
+    return bool(
+        isinstance(id, str)
+        and (id.startswith("https://") or id.startswith("http://"))
+    )
 
 
 def _get_metadata_from_openapi(paths: Dict, path: str):
@@ -173,8 +174,7 @@ class _LightningAppOpenAPIRetriever:
                 self.url = url
                 return
 
-        app = self._maybe_find_matching_cloud_app()
-        if app:
+        if app := self._maybe_find_matching_cloud_app():
             self.url = app.status.url
 
     def _maybe_find_matching_cloud_app(self):
@@ -202,7 +202,7 @@ class _LightningAppOpenAPIRetriever:
         if _is_url(self.app_id_or_name_or_url):
             self.url = self.app_id_or_name_or_url
             assert self.url
-            resp = requests.get(self.url + "/openapi.json")
+            resp = requests.get(f"{self.url}/openapi.json")
             if resp.status_code != 200:
                 print(f"ERROR: The server didn't process the request properly. Found {resp.json()}")
                 sys.exit(0)
@@ -214,25 +214,23 @@ class _LightningAppOpenAPIRetriever:
             with contextlib.suppress(requests.exceptions.ConnectionError):
                 self.url = f"http://localhost:{APP_SERVER_PORT}"
                 resp = requests.get(f"{self.url}/openapi.json")
-                if resp.status_code != 200:
-                    raise Exception(f"The server didn't process the request properly. Found {resp.json()}")
-                self.openapi = resp.json()
+                if resp.status_code == 200:
+                    self.openapi = resp.json()
 
-        # 3: If an identified was provided or the local evaluation has failed, evaluate the cloud.
-        else:
-            app = self._maybe_find_matching_cloud_app()
-            if app:
-                if app.status.url == "":
-                    raise Exception("The application is starting. Try in a few moments.")
-                resp = requests.get(app.status.url + "/openapi.json")
-                if resp.status_code != 200:
-                    raise Exception(
-                        "The server didn't process the request properly. " "Try once your application is ready."
-                    )
-                self.url = app.status.url
-                self.openapi = resp.json()
-                self.app_id = app.id
-                self.app_name = _get_app_display_name(app)
+                else:
+                    raise Exception(f"The server didn't process the request properly. Found {resp.json()}")
+        elif app := self._maybe_find_matching_cloud_app():
+            if app.status.url == "":
+                raise Exception("The application is starting. Try in a few moments.")
+            resp = requests.get(f"{app.status.url}/openapi.json")
+            if resp.status_code != 200:
+                raise Exception(
+                    "The server didn't process the request properly. " "Try once your application is ready."
+                )
+            self.url = app.status.url
+            self.openapi = resp.json()
+            self.app_id = app.id
+            self.app_name = _get_app_display_name(app)
 
 
 def _arrow_time_callback(
@@ -284,8 +282,7 @@ def _check_version_and_upgrade():
 
     If not, prompt the user to upgrade ``lightning`` for them and re-run the current call in the new version.
     """
-    new_version = _get_newer_version()
-    if new_version:
+    if new_version := _get_newer_version():
         prompt = f"A newer version of {__package_name__} is available ({new_version}). Would you like to upgrade?"
 
         if click.confirm(prompt, default=True):

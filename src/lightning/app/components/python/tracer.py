@@ -120,7 +120,7 @@ class TracerPythonScript(LightningWork):
 
         """
         super().__init__(**kwargs)
-        self.script_path = str(script_path)
+        self.script_path = script_path
         if isinstance(script_args, str):
             script_args = script_args.split(" ")
         self.script_args = script_args if script_args else []
@@ -171,9 +171,7 @@ class TracerPythonScript(LightningWork):
 
         kwargs = {k: v.value if isinstance(v, Payload) else v for k, v in kwargs.items()}
 
-        init_globals = globals()
-        init_globals.update(kwargs)
-
+        init_globals = globals() | kwargs
         self.on_before_run()
         env_copy = os.environ.copy()
         if self.env:

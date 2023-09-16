@@ -106,7 +106,7 @@ def _handle_command_without_client(command: str, metadata: Dict, url: str) -> No
 
     # TODO: Encode the parameters and validate their type.
     query_parameters = "&".join(provided_params)
-    resp = requests.post(url + f"/command/{command}?{query_parameters}")
+    resp = requests.post(f"{url}/command/{command}?{query_parameters}")
     assert resp.status_code == 200, resp.json()
     print(resp.json())
 
@@ -117,7 +117,7 @@ def _handle_command_with_client(command: str, metadata: Dict, app_name: str, app
     if app_name == "localhost":
         target_file = metadata["cls_path"]
     else:
-        target_file = _resolve_command_path(command) if debug_mode else _resolve_command_path(command)
+        target_file = _resolve_command_path(command)
 
     if debug_mode:
         print(target_file)

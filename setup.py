@@ -148,7 +148,7 @@ if __name__ == "__main__":
             # replace imports and copy the code
             assistant.create_mirror_package(_PATH_SRC, _PACKAGE_MAPPING)
     else:
-        assert len(local_pkgs) > 0
+        assert local_pkgs
         # PL as a package is distributed together with Fabric, so in such case there are more than one candidate
         package_to_install = "pytorch_lightning" if "pytorch_lightning" in local_pkgs else local_pkgs[0]
     print(f"Installing package: {package_to_install}")

@@ -83,22 +83,25 @@ class StreamlitFrontend(Frontend):
         env["LIGHTNING_RENDER_MODULE_FILE"] = inspect.getmodule(self.render_fn).__file__
         std_err_out = get_logfile("error.log")
         std_out_out = get_logfile("output.log")
-        with open(std_err_out, "wb") as stderr, open(std_out_out, "wb") as stdout:
+        with (open(std_err_out, "wb") as stderr, open(std_out_out, "wb") as stdout):
             self._process = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
                     "streamlit",
                     "run",
-                    os.path.join(os.path.dirname(lightning.app.frontend.__file__), "streamlit_base.py"),
+                    os.path.join(
+                        os.path.dirname(lightning.app.frontend.__file__),
+                        "streamlit_base.py",
+                    ),
                     "--server.address",
-                    str(host),
+                    host,
                     "--server.port",
                     str(port),
                     "--server.baseUrlPath",
                     self.flow.name,
                     "--server.headless",
-                    "true",  # do not open the browser window when running locally
+                    "true",
                     "--server.enableXsrfProtection",
                     "true" if is_running_in_cloud() else "false",
                 ],

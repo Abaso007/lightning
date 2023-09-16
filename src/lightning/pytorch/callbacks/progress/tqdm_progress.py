@@ -409,9 +409,7 @@ def convert_inf(x: Optional[Union[int, float]]) -> Optional[Union[int, float]]:
     We have to convert it to None.
 
     """
-    if x is None or math.isinf(x) or math.isnan(x):
-        return None
-    return x
+    return None if x is None or math.isinf(x) or math.isnan(x) else x
 
 
 def _update_n(bar: _tqdm, value: int) -> None:

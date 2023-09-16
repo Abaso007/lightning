@@ -104,7 +104,7 @@ def main() -> None:
                     _run_app_command(app_name, app_id)
 
                 click.echo()
-                click.echo(message + " Return to the primary CLI with `lightning disconnect`.")
+                click.echo(f"{message} Return to the primary CLI with `lightning disconnect`.")
         else:
             _main()
 
@@ -203,7 +203,7 @@ def _run_app(
             run_app_commands(str(file))
 
     env_vars = _format_input_env_variables(env)
-    os.environ.update(env_vars)
+    os.environ |= env_vars
 
     secrets = _format_input_env_variables(secret)
 
@@ -396,8 +396,7 @@ def init_react_ui(dest_dir: str) -> None:
 
 
 def _prepare_file(file: str) -> str:
-    exists = os.path.exists(file)
-    if exists:
+    if exists := os.path.exists(file):
         return file
 
     raise FileNotFoundError(f"The provided file {file} hasn't been found.")

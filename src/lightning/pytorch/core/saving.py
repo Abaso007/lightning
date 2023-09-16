@@ -133,7 +133,7 @@ def _load_state(
             # TODO: make this a migration:
             # 1. (backward compatibility) Try to restore model hparams from checkpoint using old/past keys
             for _old_hparam_key in CHECKPOINT_PAST_HPARAMS_KEYS:
-                cls_kwargs_loaded.update(checkpoint.get(_old_hparam_key, {}))
+                cls_kwargs_loaded |= checkpoint.get(_old_hparam_key, {})
 
         # 2. Try to restore model hparams from checkpoint using the new key
         cls_kwargs_loaded.update(checkpoint.get(cls.CHECKPOINT_HYPER_PARAMS_KEY, {}))
@@ -147,7 +147,7 @@ def _load_state(
             cls_kwargs_loaded = {args_name: cls_kwargs_loaded}
 
     _cls_kwargs = {}
-    _cls_kwargs.update(cls_kwargs_loaded)
+    _cls_kwargs |= cls_kwargs_loaded
     _cls_kwargs.update(cls_kwargs_new)
 
     if not cls_spec.varkw:
@@ -223,7 +223,7 @@ def update_hparams(hparams: dict, updates: dict) -> None:
             update_hparams(hparams[k], updates[k])
         else:
             # update the value
-            hparams.update({k: v})
+            hparams[k] = v
 
 
 def load_hparams_from_tags_csv(tags_csv: _PATH) -> Dict[str, Any]:
@@ -327,12 +327,9 @@ def save_hparams_to_yaml(config_yaml: _PATH, hparams: Union[dict, Namespace], us
         hparams = deepcopy(hparams)
         hparams = apply_to_collection(hparams, DictConfig, OmegaConf.to_container, resolve=True)
         with fs.open(config_yaml, "w", encoding="utf-8") as fp:
-            try:
+            with contextlib.suppress(UnsupportedValueType, ValidationError):
                 OmegaConf.save(hparams, fp)
                 return
-            except (UnsupportedValueType, ValidationError):
-                pass
-
     if not isinstance(hparams, dict):
         raise TypeError("hparams must be dictionary")
 

@@ -55,7 +55,7 @@ class ScriptOrchestrator(LightningFlow):
 
     def _prepare_environment(self) -> Dict[str, str]:
         env = os.environ.copy()
-        env.update(self.environment_variables)
+        env |= self.environment_variables
         return env
 
 

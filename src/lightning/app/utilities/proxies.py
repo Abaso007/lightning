@@ -135,15 +135,23 @@ class ProxyWorkRun:
         data = {"args": args, "kwargs": kwargs, "call_hash": call_hash}
 
         # The if/else conditions are left un-compressed to simplify readability for the readers.
-        if not entered or stopped_on_sigterm:
+        if (
+            entered
+            and not stopped_on_sigterm
+            and self.work.cache_calls
+            and returned
+        ):
+            return
+        elif (
+            entered
+            and not stopped_on_sigterm
+            and returned
+            or not entered
+            or stopped_on_sigterm
+        ):
+            # the previous task has completed and we can re-queue the next one.
+            # overriding the return value for next loop iteration.
             _send_data_to_caller_queue(self, self.work, self.caller_queue, data, call_hash)
-        else:
-            if self.work.cache_calls and returned:
-                return
-            elif returned or stopped_on_sigterm:
-                # the previous task has completed and we can re-queue the next one.
-                # overriding the return value for next loop iteration.
-                _send_data_to_caller_queue(self, self.work, self.caller_queue, data, call_hash)
         if not self.work.parallel:
             raise CacheMissException("Task never called before. Triggered now")
 
@@ -273,8 +281,7 @@ class WorkStateObserver(Thread):
     @staticmethod
     def get_state_changed_from_queue(q: "BaseQueue", timeout: Optional[int] = None):
         try:
-            delta = q.get(timeout=timeout or q.default_timeout)
-            return delta
+            return q.get(timeout=timeout or q.default_timeout)
         except queue.Empty:
             return None
 
@@ -554,7 +561,7 @@ class WorkRunner:
             self.work._calls[call_hash]["statuses"].append(
                 make_status(
                     WorkStageStatus.FAILED,
-                    message=str("\n".join(trace)),
+                    message="\n".join(trace),
                     reason=WorkFailureReasons.USER_EXCEPTION,
                 )
             )

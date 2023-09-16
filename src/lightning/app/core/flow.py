@@ -320,7 +320,7 @@ class LightningFlow:
         for el in sorted(self._flows):
             flow = getattr(self, el)
             flows[flow.name] = flow
-            flows.update(flow.flows)
+            flows |= flow.flows
         for struct_name in sorted(self._structures):
             flows.update(getattr(self, struct_name).flows)
         return flows
@@ -345,11 +345,9 @@ class LightningFlow:
         if not recurse:
             return works
         for child_name in sorted(self._flows):
-            for w in getattr(self, child_name).works(recurse=recurse):
-                works.append(w)
+            works.extend(iter(getattr(self, child_name).works(recurse=recurse)))
         for struct_name in sorted(self._structures):
-            for w in getattr(self, struct_name).works:
-                works.append(w)
+            works.extend(iter(getattr(self, struct_name).works))
         return works
 
     def named_works(self, recurse: bool = True) -> List[Tuple[str, LightningWork]]:
@@ -530,8 +528,7 @@ class LightningFlow:
             }
 
             self._calls["scheduling"][call_hash] = schedule_metadata
-            app = _LightningAppRef().get_current()
-            if app:
+            if app := _LightningAppRef().get_current():
                 app._register_schedule(call_hash, schedule_metadata)
             return True
 
@@ -662,11 +659,11 @@ class LightningFlow:
         has_finished = entered and self._calls[call_hash]["has_finished"]
 
         if has_finished:
-            if not run_once:
-                self._calls[call_hash].update({"counter": 0, "has_finished": False})
-            else:
+            if run_once:
                 return range(0)
 
+            else:
+                self._calls[call_hash].update({"counter": 0, "has_finished": False})
         if not has_started:
             self._calls[call_hash] = {
                 "name": self.experimental_iterate.__name__,
@@ -818,7 +815,7 @@ class LightningFlow:
             child = getattr(self, child_name, None)
             if isinstance(child, LightningFlow):
                 lower_children_states = {
-                    k.replace(child_name + ".", ""): v
+                    k.replace(f"{child_name}.", ""): v
                     for k, v in children_states.items()
                     if k.startswith(child_name) and k != child_name
                 }
@@ -837,9 +834,7 @@ class _RootFlow(LightningFlow):
     @property
     def ready(self) -> bool:
         ready = getattr(self.work, "ready", None)
-        if ready is not None:
-            return ready
-        return self.work.url != ""
+        return ready if ready is not None else self.work.url != ""
 
     def run(self) -> None:
         if self.work.has_succeeded:

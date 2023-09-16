@@ -17,9 +17,7 @@ class StreamlitApp(app.components.ServeStreamlit):
 
     def render(self):
         st.title("Text To Speech")
-        text = st.text_input("Text:", "Lightning Apps are the best!")
-
-        if text:
+        if text := st.text_input("Text:", "Lightning Apps are the best!"):
             model, sample_rate = self.model
             audio_numpy = model(text).numpy()
             audio = BytesIO()

@@ -11,29 +11,27 @@ from typing import Callable, Dict, List, Optional, Tuple, TypedDict
 
 ENABLE_MULTIPLE_WORKS_IN_DEFAULT_CONTAINER = bool(int(os.getenv("ENABLE_MULTIPLE_WORKS_IN_DEFAULT_CONTAINER", "0")))
 
-if True:  # ToDo: Avoid Module level import not at top of file
-    from lightning.app.core import constants
-    from lightning.app.core.api import start_server
-    from lightning.app.core.flow import LightningFlow
-    from lightning.app.core.queues import MultiProcessQueue, QueuingSystem
-    from lightning.app.storage.orchestrator import StorageOrchestrator
-    from lightning.app.utilities.app_commands import run_app_commands
-    from lightning.app.utilities.cloud import _sigterm_flow_handler
-    from lightning.app.utilities.component import _set_flow_context, _set_frontend_context
-    from lightning.app.utilities.enum import AppStage
-    from lightning.app.utilities.exceptions import ExitAppException
-    from lightning.app.utilities.load_app import extract_metadata_from_app, load_app_from_file
-    from lightning.app.utilities.proxies import WorkRunner
-    from lightning.app.utilities.redis import check_if_redis_running
+from lightning.app.core import constants
+from lightning.app.core.api import start_server
+from lightning.app.core.flow import LightningFlow
+from lightning.app.core.queues import MultiProcessQueue, QueuingSystem
+from lightning.app.storage.orchestrator import StorageOrchestrator
+from lightning.app.utilities.app_commands import run_app_commands
+from lightning.app.utilities.cloud import _sigterm_flow_handler
+from lightning.app.utilities.component import _set_flow_context, _set_frontend_context
+from lightning.app.utilities.enum import AppStage
+from lightning.app.utilities.exceptions import ExitAppException
+from lightning.app.utilities.load_app import extract_metadata_from_app, load_app_from_file
+from lightning.app.utilities.proxies import WorkRunner
+from lightning.app.utilities.redis import check_if_redis_running
 
 if ENABLE_MULTIPLE_WORKS_IN_DEFAULT_CONTAINER:
     from lightning.app.launcher.lightning_hybrid_backend import CloudHybridBackend as CloudBackend
 else:
     from lightning.app.launcher.lightning_backend import CloudBackend
 
-if True:  # Avoid Module level import not at top of file
-    from lightning.app.utilities.app_helpers import convert_print_to_logger_info
-    from lightning.app.utilities.packaging.lightning_utils import enable_debugging
+from lightning.app.utilities.app_helpers import convert_print_to_logger_info
+from lightning.app.utilities.packaging.lightning_utils import enable_debugging
 
 if hasattr(constants, "get_cloud_queue_type"):
     CLOUD_QUEUE_TYPE = constants.get_cloud_queue_type() or "redis"
@@ -64,7 +62,7 @@ def start_application_server(
 
     # Note: Override the queues if provided
     if isinstance(queues, Dict):
-        kwargs.update(queues)
+        kwargs |= queues
     else:
         kwargs.update(
             {
@@ -217,7 +215,7 @@ def run_lightning_flow(entrypoint_file: str, queue_id: str, base_url: str, queue
     app.backend.stop_all_works(app.works)
 
     exit_code = 1 if app.stage == AppStage.FAILED else 0
-    print(f"Finishing the App with exit_code: {str(exit_code)}...")
+    print(f"Finishing the App with exit_code: {exit_code}...")
 
     if not exit_code:
         app.backend.stop_app(app)
@@ -355,15 +353,12 @@ def _get_frontends_from_app(entrypoint_file):
     """
     app = load_app_from_file(entrypoint_file)
 
-    frontends = []
-    # This value of the port should be synced with the port value in the backend.
-    # If you change this value, you should also change the value in the backend.
-    flow_frontends_starting_port = 8081
-    for frontend in sorted(app.frontends.keys()):
-        frontends.append((frontend, flow_frontends_starting_port))
-        flow_frontends_starting_port += 1
-
-    return frontends
+    return [
+        (frontend, flow_frontends_starting_port)
+        for flow_frontends_starting_port, frontend in enumerate(
+            sorted(app.frontends.keys()), start=8081
+        )
+    ]
 
 
 @convert_print_to_logger_info

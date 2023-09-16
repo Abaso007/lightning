@@ -65,19 +65,7 @@ class _RunIf:
 
     """
 
-    def __new__(
-        self,
-        *args: Any,
-        pl: bool = False,
-        flash: bool = False,
-        min_python: Optional[str] = None,
-        skip_windows: bool = False,
-        skip_linux: bool = False,
-        skip_mac_os: bool = False,
-        local_end_to_end: bool = False,
-        cloud: bool = False,
-        **kwargs: Any,
-    ):
+    def __new__(cls, *args: Any, pl: bool = False, flash: bool = False, min_python: Optional[str] = None, skip_windows: bool = False, skip_linux: bool = False, skip_mac_os: bool = False, local_end_to_end: bool = False, cloud: bool = False, **kwargs: Any):
         """
         Args:
             *args: Any :class:`pytest.mark.skipif` arguments.

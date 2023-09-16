@@ -128,14 +128,13 @@ class CloudBackend(Backend):
                     )
                 )
             else:
-                for mount in work.cloud_compute.mounts:
-                    drive_specs.append(
-                        _create_mount_drive_spec(
-                            work_name=work.name,
-                            mount=mount,
-                        )
+                drive_specs.extend(
+                    _create_mount_drive_spec(
+                        work_name=work.name,
+                        mount=mount,
                     )
-
+                    for mount in work.cloud_compute.mounts
+                )
         if hasattr(work.cloud_compute, "interruptible"):
             preemptible = work.cloud_compute.interruptible
         else:
@@ -174,13 +173,9 @@ class CloudBackend(Backend):
         )
         external_specs: List[Externalv1Lightningwork] = list_response.lightningworks
 
-        # Find THIS work in the list of all registered works
-        external_spec = None
-        for es in external_specs:
-            if es.name == work.name:
-                external_spec = es
-                break
-
+        external_spec = next(
+            (es for es in external_specs if es.name == work.name), None
+        )
         if external_spec is None:
             spec = self._work_to_spec(work)
             try:
@@ -346,7 +341,7 @@ class CloudBackend(Backend):
                     )
                 if isinstance(flow._layout, dict) and "target" not in flow._layout:
                     # FIXME: Why _check_service_url_is_ready doesn't work ?
-                    frontend_url = urllib.parse.urljoin(self.base_url, flow.name + "/")
+                    frontend_url = urllib.parse.urljoin(self.base_url, f"{flow.name}/")
                     flow._layout["target"] = frontend_url
 
         for work in app.works:
@@ -500,15 +495,14 @@ class CloudBackend(Backend):
 
 
 def _create_mount_drive_spec(work_name: str, mount: "Mount") -> V1LightningworkDrives:
-    if mount.protocol == "s3://":
-        drive_type = V1DriveType.INDEXED_S3
-        source_type = V1SourceType.S3
-    else:
+    if mount.protocol != "s3://":
         raise RuntimeError(
             f"unknown mounts protocol `{mount.protocol}`. Please verify this "
             f"drive type has been configured for use in the cloud dispatcher."
         )
 
+    drive_type = V1DriveType.INDEXED_S3
+    source_type = V1SourceType.S3
     return V1LightningworkDrives(
         drive=V1Drive(
             metadata=V1Metadata(

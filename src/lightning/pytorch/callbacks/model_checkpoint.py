@@ -400,12 +400,7 @@ class ModelCheckpoint(Checkpoint):
         num_val_batches = (
             sum(trainer.num_val_batches) if isinstance(trainer.num_val_batches, list) else trainer.num_val_batches
         )
-        if num_val_batches == 0:
-            return True
-
-        # if the user runs validation multiple times per training epoch, then we run after validation
-        # instead of on train epoch end
-        return trainer.val_check_interval == 1.0
+        return True if num_val_batches == 0 else trainer.val_check_interval == 1.0
 
     def __validate_init_configuration(self) -> None:
         if self.save_top_k < -1:
@@ -595,20 +590,19 @@ class ModelCheckpoint(Checkpoint):
             # short circuit if dirpath was passed to ModelCheckpoint
             return self.dirpath
 
-        if len(trainer.loggers) > 0:
-            if trainer.loggers[0].save_dir is not None:
-                save_dir = trainer.loggers[0].save_dir
-            else:
-                save_dir = trainer.default_root_dir
-            name = trainer.loggers[0].name
-            version = trainer.loggers[0].version
-            version = version if isinstance(version, str) else f"version_{version}"
-            ckpt_path = os.path.join(save_dir, str(name), version, "checkpoints")
-        else:
+        if len(trainer.loggers) <= 0:
             # if no loggers, use default_root_dir
-            ckpt_path = os.path.join(trainer.default_root_dir, "checkpoints")
+            return os.path.join(trainer.default_root_dir, "checkpoints")
 
-        return ckpt_path
+        save_dir = (
+            trainer.loggers[0].save_dir
+            if trainer.loggers[0].save_dir is not None
+            else trainer.default_root_dir
+        )
+        name = trainer.loggers[0].name
+        version = trainer.loggers[0].version
+        version = version if isinstance(version, str) else f"version_{version}"
+        return os.path.join(save_dir, str(name), version, "checkpoints")
 
     def _find_last_checkpoints(self, trainer: "pl.Trainer") -> Set[str]:
         # find all checkpoints in the folder

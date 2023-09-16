@@ -48,11 +48,10 @@ class SpikeDetection:
         exclude_batches_path: Optional[_PATH] = None,
         finite_only: bool = True,
     ):
-        if _TORCHMETRICS_GREATER_EQUAL_1_0_0:
-            from torchmetrics.aggregation import MeanMetric
-            from torchmetrics.wrappers import Running
-        else:
+        if not _TORCHMETRICS_GREATER_EQUAL_1_0_0:
             raise RuntimeError("SpikeDetection requires torchmetrics>=1.0.0! Please upgrade your version!")
+        from torchmetrics.aggregation import MeanMetric
+        from torchmetrics.wrappers import Running
         super().__init__()
 
         self.last_val: Union[torch.Tensor, float] = 0.0
@@ -85,17 +84,17 @@ class SpikeDetection:
         is_spike = bool(batch_idx >= self.warmup and self._is_spike(loss))
         fabric.strategy.barrier()
 
-        # While spike-detection happens on a per-rank level, we need to fail all ranks if any rank detected a spike
-        is_spike_global = fabric.strategy.reduce_boolean_decision(is_spike, all=False)
-
-        if is_spike_global:
+        if is_spike_global := fabric.strategy.reduce_boolean_decision(
+            is_spike, all=False
+        ):
             self._handle_spike(fabric, batch_idx)
-        else:
-            is_finite_all = self.finite_only or fabric.strategy.reduce_boolean_decision(
+        elif (
+            is_finite_all := self.finite_only
+            or fabric.strategy.reduce_boolean_decision(
                 bool(torch.isfinite(loss).all()), all=True
             )
-            if is_finite_all:
-                self._update_stats(loss)
+        ):
+            self._update_stats(loss)
 
     def _is_spike(self, loss: torch.Tensor) -> bool:
         # we might call compute more often than update which is fine as long as the
@@ -129,10 +128,10 @@ class SpikeDetection:
         raise TrainingSpikeException(batch_idx=batch_idx)
 
     def _check_atol(self, val_a: Union[float, torch.Tensor], val_b: Union[float, torch.Tensor]) -> bool:
-        return (self.atol is None) or bool(abs(val_a - val_b) >= abs(self.atol))
+        return self.atol is None or abs(val_a - val_b) >= abs(self.atol)
 
     def _check_rtol(self, val_a: Union[float, torch.Tensor], val_b: Union[float, torch.Tensor]) -> bool:
-        return (self.rtol is None) or bool(abs(val_a - val_b) >= abs(self.rtol * val_b))
+        return self.rtol is None or abs(val_a - val_b) >= abs(self.rtol * val_b)
 
     def _is_better(self, diff_val: torch.Tensor) -> bool:
         if self.mode == "min":

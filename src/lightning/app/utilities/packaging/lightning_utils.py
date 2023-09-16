@@ -101,7 +101,7 @@ def get_dist_path_if_editable_install(project_name) -> str:
         if not os.path.isdir(path_item):
             continue
 
-        egg_info = os.path.join(path_item, project_name + ".egg-info")
+        egg_info = os.path.join(path_item, f"{project_name}.egg-info")
         if os.path.isdir(egg_info):
             return path_item
     return ""
@@ -139,9 +139,9 @@ def _prepare_lightning_wheels_and_requirements(root: Path, package_name: str = "
 
     # Don't skip by default
     if (PACKAGE_LIGHTNING or is_lightning) and not bool(int(os.getenv("SKIP_LIGHTING_UTILITY_WHEELS_BUILD", "0"))):
-        # building and copying lightning-cloud wheel if installed in editable mode
-        lightning_cloud_project_path = get_dist_path_if_editable_install("lightning_cloud")
-        if lightning_cloud_project_path:
+        if lightning_cloud_project_path := get_dist_path_if_editable_install(
+            "lightning_cloud"
+        ):
             from lightning_cloud.__version__ import __version__ as cloud_version
 
             # todo: check why logging.info is missing in outputs

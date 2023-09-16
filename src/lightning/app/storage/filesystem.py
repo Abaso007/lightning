@@ -96,11 +96,10 @@ class FileSystem:
         # TODO: Re-evaluate this - may lead to performance issues
         self._fs.invalidate_cache()
 
-        paths = self._fs.ls(shared_path)
-        if not paths:
+        if paths := self._fs.ls(shared_path):
+            return sorted([path.replace(self._root + os.sep, "") for path in paths if not path.endswith("info.txt")])
+        else:
             return paths
-
-        return sorted([path.replace(self._root + os.sep, "") for path in paths if not path.endswith("info.txt")])
 
     def walk(self, path: str) -> List[str]:
         """This method enables to list files from the shared storage in a blocking fashion.
@@ -131,9 +130,7 @@ class FileSystem:
             path = str(shared_path).replace(self._root, "")
             if self._fs.isdir(shared_path):
                 out.extend(self.walk(path))
-            else:
-                if path.endswith("info.txt"):
-                    continue
+            elif not path.endswith("info.txt"):
                 out.append(path[1:])
         return sorted(out)
 
@@ -143,13 +140,12 @@ class FileSystem:
 
         delete_path = Path(os.path.join(self._root, path[1:])).resolve()
 
-        if self._fs.exists(str(delete_path)):
-            if self._fs.isdir(str(delete_path)):
-                self._fs.rmdir(str(delete_path))
-            else:
-                self._fs.rm(str(delete_path))
-        else:
+        if not self._fs.exists(str(delete_path)):
             raise Exception(f"The file path {path} doesn't exist.")
+        if self._fs.isdir(str(delete_path)):
+            self._fs.rmdir(str(delete_path))
+        else:
+            self._fs.rm(str(delete_path))
 
     def isfile(self, path: str) -> bool:
         if not path.startswith("/"):

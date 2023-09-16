@@ -34,7 +34,7 @@ def rm(rm_path: str, r: bool = False, recursive: bool = False) -> None:
     """Delete files on the Lightning Cloud filesystem."""
     root = _pwd()
 
-    if rm_path in (".", ".."):
+    if rm_path in {".", ".."}:
         return _error_and_exit('rm "." and ".." may not be removed')
 
     if ".." in rm_path:
@@ -52,7 +52,7 @@ def rm(rm_path: str, r: bool = False, recursive: bool = False) -> None:
     project = [project for project in projects.memberships if project.name == splits[0]]
 
     # This happens if the user changes cluster and the project doesn't exist.
-    if len(project) == 0:
+    if not project:
         return _error_and_exit(
             f"There isn't any Lightning Project matching the name {splits[0]}." " HINT: Use `lightning cd`."
         )
@@ -68,11 +68,11 @@ def rm(rm_path: str, r: bool = False, recursive: bool = False) -> None:
 
     lit_ressources = [lit_resource for lit_resource in lit_cloud_spaces if lit_resource.name == splits[1]]
 
-    if len(lit_ressources) == 0:
+    if not lit_ressources:
         lit_ressources = [lit_resource for lit_resource in lit_apps if lit_resource.name == splits[1]]
 
-        if len(lit_ressources) == 0:
-            _error_and_exit(f"There isn't any Lightning Ressource matching the name {splits[1]}.")
+    if not lit_ressources:
+        _error_and_exit(f"There isn't any Lightning Ressource matching the name {splits[1]}.")
 
     lit_resource = lit_ressources[0]
 

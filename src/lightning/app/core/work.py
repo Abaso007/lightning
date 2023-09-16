@@ -394,9 +394,7 @@ class LightningWork:
     def num_timeouts(self) -> int:
         """Return the number of timeout status since the lastest succeeded run."""
         status = self.status
-        if status.reason == WorkFailureReasons.TIMEOUT:
-            return status.count
-        return 0
+        return status.count if status.reason == WorkFailureReasons.TIMEOUT else 0
 
     @property
     def num_successes(self) -> int:
@@ -645,10 +643,11 @@ class LightningWork:
 
     def _aggregate_status_timeout(self, statuses: List[Dict]) -> WorkStatus:
         """Method used to return the first request and the total count of timeout after the latest succeeded status."""
-        succeeded_statuses = [
-            status_idx for status_idx, status in enumerate(statuses) if status["stage"] == WorkStageStatus.SUCCEEDED
-        ]
-        if succeeded_statuses:
+        if succeeded_statuses := [
+            status_idx
+            for status_idx, status in enumerate(statuses)
+            if status["stage"] == WorkStageStatus.SUCCEEDED
+        ]:
             succeed_status_id = succeeded_statuses[-1] + 1
             statuses = statuses[succeed_status_id:]
         timeout_statuses = [status for status in statuses if status.get("reason") == WorkFailureReasons.TIMEOUT]

@@ -39,9 +39,7 @@ class BoringApp(LightningFlow):
 
     @property
     def ready(self) -> bool:
-        if "dst_w" in self.dict:
-            return self.dict["dst_w"].url != ""
-        return False
+        return self.dict["dst_w"].url != "" if "dst_w" in self.dict else False
 
     def run(self):
         # create dynamically the source_work at runtime

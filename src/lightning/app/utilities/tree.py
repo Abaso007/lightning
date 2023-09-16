@@ -53,9 +53,11 @@ class _BreadthFirstVisitor:
                         values = sorted(structure.items(), key=lambda x: x[0])
                     else:
                         values = sorted(((v.name, v) for v in structure), key=lambda x: x[0])
-                    for _, value in values:
-                        if isinstance(value, lightning.app.LightningFlow):
-                            components.append(value)
+                    components.extend(
+                        value
+                        for _, value in values
+                        if isinstance(value, lightning.app.LightningFlow)
+                    )
                 self.queue += components
                 self.queue += component.works(recurse=False)
 

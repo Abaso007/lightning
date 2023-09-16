@@ -79,10 +79,9 @@ def _make_resource(resource_dir: str, resource_name: str) -> Tuple[str, str]:
 def _ls_recursively(dir_name: str) -> List[str]:
     fname = []
     for root, d_names, f_names in os.walk(dir_name):
-        for f in f_names:
-            if "__pycache__" not in root:
-                fname.append(os.path.join(root, f))
-
+        fname.extend(
+            os.path.join(root, f) for f in f_names if "__pycache__" not in root
+        )
     return fname
 
 
@@ -96,8 +95,7 @@ def _capture_valid_app_component_name(value: Optional[str] = None, resource_type
         if value is None:
             value = input(f"\nName your Lightning {resource_type} (example: the-{resource_type}-name) >  ")
         value = value.strip().lower()
-        unsafe_chars = set(re.findall(r"[^a-z0-9\-]", value))
-        if len(unsafe_chars) > 0:
+        if unsafe_chars := set(re.findall(r"[^a-z0-9\-]", value)):
             m = f"""
             Error: your Lightning {resource_type} name:
             {value}

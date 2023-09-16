@@ -117,7 +117,7 @@ def _check_react_prerequisites() -> None:
         missing_msgs.append(m)
 
     # exit or show success message
-    if len(missing_msgs) > 0:
+    if missing_msgs:
         missing_msg = "\n".join(missing_msgs)
         raise SystemExit(missing_msg)
     logger.info(

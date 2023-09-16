@@ -281,7 +281,7 @@ class DQNLightning(LightningModule):
             steps: number of random steps to populate the buffer with
 
         """
-        for i in range(steps):
+        for _ in range(steps):
             self.agent.play_step(self.net, epsilon=1.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

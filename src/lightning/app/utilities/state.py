@@ -184,7 +184,7 @@ class AppState:
 
         # Sometimes the state URL can return an empty JSON when things are being set-up,
         # so we wait for it to be ready here.
-        while response_json == {}:
+        while not response_json:
             sleep(0.5)
             try:
                 response = self._session.get(app_url, headers=headers, timeout=1)

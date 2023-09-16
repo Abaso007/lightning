@@ -233,9 +233,7 @@ class Database(LightningWork):
         if use_localhost:
             return self.url
         ip_addr = self.public_ip or self.internal_ip
-        if ip_addr != "":
-            return f"http://{ip_addr}:{self.port}"
-        return ip_addr
+        return f"http://{ip_addr}:{self.port}" if ip_addr != "" else ip_addr
 
     def on_exit(self):
         self._exit_event.set()

@@ -31,4 +31,4 @@ def render_fn(state: AppState):
 
     xp = hip.Experiment.from_iterable(state.data)
     ret_val = xp.to_streamlit(ret="selected_uids", key="hip").display()
-    st.markdown("hiplot returned " + json.dumps(ret_val))
+    st.markdown(f"hiplot returned {json.dumps(ret_val)}")

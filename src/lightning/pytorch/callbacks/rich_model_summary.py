@@ -94,10 +94,15 @@ class RichModelSummary(ModelSummary):
 
         console.print(table)
 
-        parameters = []
-        for param in [trainable_parameters, total_parameters - trainable_parameters, total_parameters, model_size]:
-            parameters.append("{:<{}}".format(get_human_readable_count(int(param)), 10))
-
+        parameters = [
+            "{:<{}}".format(get_human_readable_count(int(param)), 10)
+            for param in [
+                trainable_parameters,
+                total_parameters - trainable_parameters,
+                total_parameters,
+                model_size,
+            ]
+        ]
         grid = Table.grid(expand=True)
         grid.add_column()
         grid.add_column()

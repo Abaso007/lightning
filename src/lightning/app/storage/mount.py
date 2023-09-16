@@ -69,7 +69,11 @@ class Mount:
     @property
     def protocol(self) -> str:
         """The backing storage protocol indicated by this drive source."""
-        for protocol in __MOUNT_PROTOCOLS__:
-            if self.source.startswith(protocol):
-                return protocol
-        return ""
+        return next(
+            (
+                protocol
+                for protocol in __MOUNT_PROTOCOLS__
+                if self.source.startswith(protocol)
+            ),
+            "",
+        )

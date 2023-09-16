@@ -399,7 +399,7 @@ class XLAFSDPStrategy(ParallelStrategy, _Sharded):
         from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as XLAFSDP
 
         modules = [module for module in state.values() if isinstance(module, XLAFSDP)]
-        if len(modules) == 0:
+        if not modules:
             raise ValueError(
                 "Could not find a XLAFSDP model in the provided checkpoint state. Please provide the model as"
                 " part of the state like so: `save_checkpoint(..., state={'model': model, ...})`. Make sure"
@@ -525,7 +525,7 @@ class XLAFSDPStrategy(ParallelStrategy, _Sharded):
                     f"The path {str(file)!r} does not point to valid sharded checkpoints. Make sure the path points to"
                     " a directory with XLAFSDP checkpoint shards."
                 )
-            if len(modules) == 0:
+            if not modules:
                 raise ValueError(
                     "Could not find a XLAFSDP model in the provided checkpoint state. Please provide the model as"
                     " part of the state like so: `load_checkpoint(..., state={'model': model, ...})`. Make sure"
@@ -571,12 +571,15 @@ class XLAFSDPStrategy(ParallelStrategy, _Sharded):
                     f"The path {str(path)!r} does not point to a valid full checkpoint. Make sure the path points to a"
                     " directory with a full XLAFSDP checkpoint."
                 )
-            if len(optimizers) > 0 or len(state.keys() - modules.keys() - optimizers.keys()) > 0:
+            if (
+                optimizers
+                or len(state.keys() - modules.keys() - optimizers.keys()) > 0
+            ):
                 rank_zero_warn(
                     "Loading a full checkpoint will only load the full model."
                     " The optimizer and any additional metadata are not included."
                 )
-            if len(modules) > 0:
+            if modules:
                 raise ValueError(
                     "Found a XLAFSDP model in the provided checkpoint state."
                     " Please provide the model without any XLAFSDP wrapper."

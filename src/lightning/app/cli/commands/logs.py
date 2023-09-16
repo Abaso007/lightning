@@ -95,9 +95,7 @@ def _show_logs(app_name: str, components: List[str], follow: bool) -> None:
         def add_prefix(c: str) -> str:
             if c == "flow":
                 return c
-            if not c.startswith("root."):
-                return "root." + c
-            return c
+            return f"root.{c}" if not c.startswith("root.") else c
 
         components = [add_prefix(c) for c in components]
 

@@ -335,13 +335,13 @@ class PPOLightning(LightningModule):
                 self.state = torch.FloatTensor(self.env.reset())
 
             if epoch_end:
-                train_data = zip(
-                    self.batch_states, self.batch_actions, self.batch_logp, self.batch_qvals, self.batch_adv
+                yield from zip(
+                    self.batch_states,
+                    self.batch_actions,
+                    self.batch_logp,
+                    self.batch_qvals,
+                    self.batch_adv,
                 )
-
-                for state, action, logp_old, qval, adv in train_data:
-                    yield state, action, logp_old, qval, adv
-
                 self.batch_states.clear()
                 self.batch_actions.clear()
                 self.batch_adv.clear()

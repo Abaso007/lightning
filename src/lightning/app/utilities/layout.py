@@ -105,11 +105,7 @@ def _collect_content_layout(
             )
         if isinstance(entry["content"], str):  # assume this is a URL
             url = entry["content"]
-            if url.startswith("/"):
-                # The URL isn't fully defined yet. Looks something like ``self.work.url + /something``.
-                entry["target"] = ""
-            else:
-                entry["target"] = url
+            entry["target"] = "" if url.startswith("/") else url
             if url.startswith("http://") and is_running_in_cloud():
                 warnings.warn(
                     f"You configured an http link {url[:32]}... but it won't be accessible in the cloud."
@@ -194,9 +190,7 @@ def _collect_work_layout(work: "lightning.app.LightningWork") -> Union[None, str
     if isinstance(work_layout, str):
         url = work_layout
         # The URL isn't fully defined yet. Looks something like ``self.work.url + /something``.
-        if url and not url.startswith("/"):
-            return url
-        return ""
+        return url if url and not url.startswith("/") else ""
     if isinstance(work_layout, (Frontend, _MagicMockJsonSerializable)):
         return work_layout
     raise TypeError(

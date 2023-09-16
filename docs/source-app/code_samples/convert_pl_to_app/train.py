@@ -17,10 +17,7 @@ class LitAutoEncoder(pl.LightningModule):
         self.decoder = nn.Sequential(nn.Linear(3, 128), nn.ReLU(), nn.Linear(128, 28 * 28))
 
     def forward(self, x):
-        # in lightning,
-        # forward defines the prediction/inference actions
-        embedding = self.encoder(x)
-        return embedding
+        return self.encoder(x)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -34,8 +31,7 @@ class LitAutoEncoder(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
 
 
 dataset = MNIST(os.getcwd(), download=True, transform=T.ToTensor())

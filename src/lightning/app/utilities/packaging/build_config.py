@@ -165,9 +165,7 @@ class BuildConfig:
         # 2. Check for Dockerfile.
         dirname = os.path.dirname(file)
         dockerfile = os.path.join(dirname, filename)
-        if os.path.isfile(dockerfile):
-            return dockerfile
-        return None
+        return dockerfile if os.path.isfile(dockerfile) else None
 
     def _prepare_requirements(self) -> None:
         requirements = []

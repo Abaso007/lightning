@@ -201,10 +201,7 @@ exclude_patterns = [
 ]
 
 if _FAST_DOCS_DEV:
-    exclude_patterns.append("notebooks/*")
-    exclude_patterns.append("tutorials.rst")
-
-
+    exclude_patterns.extend(("notebooks/*", "tutorials.rst"))
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
 
@@ -252,7 +249,7 @@ html_static_path = ["_templates", "_static"]
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = project + "-doc"
+htmlhelp_basename = f"{project}-doc"
 
 # -- Options for LaTeX output ------------------------------------------------
 
@@ -270,13 +267,21 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
-latex_documents = [(master_doc, project + ".tex", project + " Documentation", author, "manual")]
+latex_documents = [
+    (
+        master_doc,
+        f"{project}.tex",
+        f"{project} Documentation",
+        author,
+        "manual",
+    )
+]
 
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, project, project + " Documentation", [author], 1)]
+man_pages = [(master_doc, project, f"{project} Documentation", [author], 1)]
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -287,7 +292,7 @@ texinfo_documents = [
     (
         master_doc,
         project,
-        project + " Documentation",
+        f"{project} Documentation",
         author,
         project,
         "One line description of project.",
@@ -354,7 +359,7 @@ def package_list_from_file(file):
     """List up package name (not containing version and extras) from a package list file."""
     mocked_packages = []
     with open(file) as fp:
-        for ln in fp.readlines():
+        for ln in fp:
             # Example: `tqdm>=4.41.0` => `tqdm`
             # `[` is for package with extras
             found = [ln.index(ch) for ch in list(",=<>#[") if ch in ln]

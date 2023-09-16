@@ -170,10 +170,7 @@ class CSVLogger(Logger):
             if _is_dir(self._fs, full_path) and name.startswith("version_"):
                 existing_versions.append(int(name.split("_")[1]))
 
-        if len(existing_versions) == 0:
-            return 0
-
-        return max(existing_versions) + 1
+        return 0 if not existing_versions else max(existing_versions) + 1
 
 
 class _ExperimentWriter:
@@ -204,9 +201,7 @@ class _ExperimentWriter:
         """Record metrics."""
 
         def _handle_value(value: Union[Tensor, Any]) -> Any:
-            if isinstance(value, Tensor):
-                return value.item()
-            return value
+            return value.item() if isinstance(value, Tensor) else value
 
         if step is None:
             step = len(self.metrics)
@@ -222,7 +217,7 @@ class _ExperimentWriter:
 
         last_m = {}
         for m in self.metrics:
-            last_m.update(m)
+            last_m |= m
         metrics_keys = list(last_m.keys())
 
         with self._fs.open(self.metrics_file_path, "w", newline="") as f:

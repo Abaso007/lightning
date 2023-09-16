@@ -39,7 +39,7 @@ def _determine_root_gpu_device(gpus: List[_DEVICE]) -> Optional[_DEVICE]:
     if not isinstance(gpus, list):
         raise TypeError("GPUs should be a list")
 
-    assert len(gpus) > 0, "GPUs should be a non-empty list"
+    assert gpus, "GPUs should be a non-empty list"
 
     # set root gpu
     return gpus[0]
@@ -78,7 +78,11 @@ def _parse_gpu_ids(
     _check_data_type(gpus)
 
     # Handle the case when no GPUs are requested
-    if gpus is None or (isinstance(gpus, int) and gpus == 0) or str(gpus).strip() in ("0", "[]"):
+    if (
+        gpus is None
+        or (isinstance(gpus, int) and gpus == 0)
+        or str(gpus).strip() in {"0", "[]"}
+    ):
         return None
 
     # We know the user requested GPUs therefore if some of the

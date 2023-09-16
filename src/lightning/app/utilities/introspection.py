@@ -49,7 +49,7 @@ class LightningVisitor(ast.NodeVisitor):
                 bases.append(base.id)
         if self.class_name in bases:
             entry = {"name": node.name, "type": self.class_name}
-            entry.update(self.analyze_class_def(node))
+            entry |= self.analyze_class_def(node)
             self.found.append(entry)
 
 
@@ -309,11 +309,7 @@ class Scanner:
 
     def __init__(self, path: str, glob_pattern: str = "**/*.py"):
         path_ = Path(path)
-        if path_.is_dir():
-            self.paths = path_.glob(glob_pattern)
-        else:
-            self.paths = [path_]
-
+        self.paths = path_.glob(glob_pattern) if path_.is_dir() else [path_]
         self.modules_found: List[Dict[str, Any]] = []
 
     def has_class(self, cls) -> bool:
@@ -330,12 +326,9 @@ class Scanner:
 
             for node in ast.walk(module):
                 if isinstance(node, ast.ImportFrom):
-                    for import_from_cls in node.names:
-                        classes.append(import_from_cls.name)
-
+                    classes.extend(import_from_cls.name for import_from_cls in node.names)
                 if isinstance(node, ast.Call):
-                    cls_name = getattr(node.func, "attr", None)
-                    if cls_name:
+                    if cls_name := getattr(node.func, "attr", None):
                         classes.append(cls_name)
 
         return cls.__name__ in classes

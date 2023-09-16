@@ -109,7 +109,7 @@ class _AcceleratorRegistry(dict):
         return list(self.keys())
 
     def __str__(self) -> str:
-        return "Registered Accelerators: {}".format(", ".join(self.available_accelerators()))
+        return f'Registered Accelerators: {", ".join(self.available_accelerators())}'
 
 
 def call_register_accelerators(registry: _AcceleratorRegistry, base_module: str) -> None:  # pragma: no-cover

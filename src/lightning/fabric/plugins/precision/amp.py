@@ -88,9 +88,7 @@ class MixedPrecision(Precision):
         return step_output
 
     def state_dict(self) -> Dict[str, Any]:
-        if self.scaler is not None:
-            return self.scaler.state_dict()
-        return {}
+        return self.scaler.state_dict() if self.scaler is not None else {}
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         if self.scaler is not None:

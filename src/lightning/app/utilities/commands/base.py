@@ -83,7 +83,10 @@ class ClientCommand:
 
     def invoke_handler(self, config: Optional[BaseModel] = None) -> Dict[str, Any]:
         command = self.command_name.replace(" ", "_")
-        resp = requests.post(self.app_url + f"/command/{command}", data=config.json() if config else None)
+        resp = requests.post(
+            f"{self.app_url}/command/{command}",
+            data=config.json() if config else None,
+        )
         if resp.status_code != 200:
             try:
                 detail = str(resp.json())
@@ -151,9 +154,7 @@ def _download_command(
 
 def _to_annotation(anno: str) -> str:
     anno = anno.split("'")[1]
-    if "." in anno:
-        return anno.split(".")[-1]
-    return anno
+    return anno.split(".")[-1] if "." in anno else anno
 
 
 def _validate_client_command(command: ClientCommand):
@@ -272,19 +273,16 @@ def _process_requests(app, requests: List[Union[_APIRequest, _CommandRequest]]) 
 
 def _collect_open_api_extras(command, info) -> Dict:
     if not isinstance(command, ClientCommand):
-        if command.__doc__ is not None:
-            return {"description": command.__doc__}
-        return {}
-
+        return {"description": command.__doc__} if command.__doc__ is not None else {}
     extras = {
         "cls_path": inspect.getfile(command.__class__),
         "cls_name": command.__class__.__name__,
         "description": command.description,
     }
     if command.requirements:
-        extras.update({"requirements": command.requirements})
+        extras["requirements"] = command.requirements
     if info:
-        extras.update({"app_info": asdict(info)})
+        extras["app_info"] = asdict(info)
     return extras
 
 

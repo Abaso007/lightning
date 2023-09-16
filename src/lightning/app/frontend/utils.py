@@ -60,7 +60,7 @@ def _get_frontend_environment(flow: str, render_fn_or_file: Callable | str, port
     env = os.environ.copy()
     env["LIGHTNING_FLOW_NAME"] = flow
     env["LIGHTNING_RENDER_PORT"] = str(port)
-    env["LIGHTNING_RENDER_ADDRESS"] = str(host)
+    env["LIGHTNING_RENDER_ADDRESS"] = host
 
     if isinstance(render_fn_or_file, str):
         env["LIGHTNING_RENDER_FILE"] = render_fn_or_file

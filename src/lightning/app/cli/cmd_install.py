@@ -346,14 +346,10 @@ def _show_install_app_prompt(
 
 def _show_non_gallery_install_app_prompt(gh_url: str, yes_arg: bool) -> Tuple[str, str]:
     try:
+        # folder_name when it's a GH url with .git
+        folder_name = gh_url.split("/")[-1]
         if gh_url.endswith(".git"):
-            # folder_name when it's a GH url with .git
-            folder_name = gh_url.split("/")[-1]
             folder_name = folder_name[:-4]
-        else:
-            # the last part of the url is the folder name otherwise
-            folder_name = gh_url.split("/")[-1]
-
         org = re.search(r"github.com\/(.*)\/", gh_url).group(1)  # type: ignore
     except Exception:
         raise SystemExit(
@@ -483,7 +479,7 @@ def _resolve_resource(
             entries.append(x)
             all_versions.append(x["version"])
 
-    if len(entries) == 0:
+    if not entries:
         if raise_error:
             raise SystemExit(f"{resource_type}: '{name}' is not available on ⚡ Lightning AI ⚡")
 
@@ -498,13 +494,10 @@ def _resolve_resource(
                 entry = e
                 break
     if entry is None and raise_error:
-        if raise_error:
-            raise Exception(
-                f"{resource_type}: 'Version {version_arg} for {name}' is not available on ⚡ Lightning AI ⚡. "
-                f"Here is the list of all availables versions:{os.linesep}{os.linesep.join(all_versions)}"
-            )
-        return None
-
+        raise Exception(
+            f"{resource_type}: 'Version {version_arg} for {name}' is not available on ⚡ Lightning AI ⚡. "
+            f"Here is the list of all availables versions:{os.linesep}{os.linesep.join(all_versions)}"
+        )
     return entry
 
 
@@ -574,12 +567,13 @@ def _install_app_from_source(
 
     destination = os.path.join(cwd, folder_name)
     if os.path.exists(destination):
-        if not overwrite:
+        if overwrite:
+            shutil.rmtree(destination)
+        else:
             raise SystemExit(
                 f"Folder {folder_name} exists, please delete it and try again, "
                 f"or force to overwrite the existing folder by passing `--overwrite`.",
             )
-        shutil.rmtree(destination)
     # clone repo
     logger.info(f"⚡ RUN: git clone {source_url}")
     try:
@@ -629,8 +623,9 @@ def _install_component_from_source(git_url: str) -> None:
     logger.info("⚡ RUN: pip install")
 
     out = subprocess.check_output(["pip", "install", git_url])
-    possible_success_message = [x for x in str(out).split("\\n") if "Successfully installed" in x]
-    if len(possible_success_message) > 0:
+    if possible_success_message := [
+        x for x in str(out).split("\\n") if "Successfully installed" in x
+    ]:
         uninstall_step = possible_success_message[0]
         uninstall_step = re.sub("Successfully installed", "", uninstall_step).strip()
         uninstall_step = re.sub("-0.0.0", "", uninstall_step).strip()

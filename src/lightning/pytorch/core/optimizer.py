@@ -50,7 +50,11 @@ class LightningOptimizer:
         self._on_before_step = do_nothing_closure
         self._on_after_step = do_nothing_closure
         # imitate the class of the wrapped object to make isinstance checks work
-        self.__class__ = type("Lightning" + optimizer.__class__.__name__, (self.__class__, optimizer.__class__), {})
+        self.__class__ = type(
+            f"Lightning{optimizer.__class__.__name__}",
+            (self.__class__, optimizer.__class__),
+            {},
+        )
 
     @property
     def optimizer(self) -> Optimizer:
@@ -251,8 +255,7 @@ def _configure_schedulers_automatic_opt(schedulers: list, monitor: Optional[str]
         if isinstance(scheduler, dict):
             # check provided keys
             supported_keys = {field.name for field in fields(LRSchedulerConfig)}
-            extra_keys = scheduler.keys() - supported_keys
-            if extra_keys:
+            if extra_keys := scheduler.keys() - supported_keys:
                 rank_zero_warn(
                     f"Found unsupported keys in the lr scheduler dict: {extra_keys}."
                     " HINT: remove them from the output of `configure_optimizers`.",
@@ -308,9 +311,7 @@ def _configure_schedulers_manual_opt(schedulers: list) -> List[LRSchedulerConfig
             # interval is not in this list even though the user needs to manually call the scheduler because
             # the `LearningRateMonitor` callback needs to check its value to know when to log the learning rate
             invalid_keys = {"reduce_on_plateau", "monitor", "strict"}
-            keys_to_warn = [k for k in scheduler if k in invalid_keys]
-
-            if keys_to_warn:
+            if keys_to_warn := [k for k in scheduler if k in invalid_keys]:
                 rank_zero_warn(
                     f"The lr scheduler dict contains the key(s) {keys_to_warn}, but the keys will be ignored."
                     " You need to call `lr_scheduler.step()` manually in manual optimization.",
@@ -370,8 +371,7 @@ def _validate_optimizers_attached(optimizers: List[Optimizer], lr_scheduler_conf
 
 def _validate_optim_conf(optim_conf: Dict[str, Any]) -> None:
     valid_keys = {"optimizer", "lr_scheduler", "monitor"}
-    extra_keys = optim_conf.keys() - valid_keys
-    if extra_keys:
+    if extra_keys := optim_conf.keys() - valid_keys:
         rank_zero_warn(
             f"Found unsupported keys in the optimizer configuration: {set(extra_keys)}", category=RuntimeWarning
         )

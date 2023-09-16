@@ -17,8 +17,8 @@ class ModelTraining(LightningWork):
         checkpoint_2 = torch.tensor([0, 1, 2, 3, 4])
         os.makedirs(self.checkpoints_path, exist_ok=True)
         checkpoint_path = str(self.checkpoints_path / "checkpoint_{}.ckpt")
-        torch.save(checkpoint_1, str(checkpoint_path).format("1"))
-        torch.save(checkpoint_2, str(checkpoint_path).format("2"))
+        torch.save(checkpoint_1, checkpoint_path.format("1"))
+        torch.save(checkpoint_2, checkpoint_path.format("2"))
 
 
 class ModelDeploy(LightningWork):

@@ -28,7 +28,7 @@ if _is_pil_available():
 class Image(BaseType):
     @staticmethod
     def deserialize(data: dict):
-        encoded_with_padding = (data + "===").encode("ascii")
+        encoded_with_padding = f"{data}===".encode("ascii")
         img = base64.b64decode(encoded_with_padding)
         buffer = BytesIO(img)
         return PILImage.open(buffer, mode="r")

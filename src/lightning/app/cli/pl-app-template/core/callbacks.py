@@ -82,7 +82,7 @@ class PLAppProgressTracker(Callback):
         current = self._val_batch_idx(trainer)
         if trainer.state.fn == "fit":
             self._state.fit.val_batch_idx = current
-        if trainer.state.fn == "validate":
+        elif trainer.state.fn == "validate":
             self._state.val.val_batch_idx = current
         if self._should_send(current, self._total_val_batches(trainer)):
             self._send_state()
@@ -250,7 +250,7 @@ class PLAppSummary(Callback):
         frame = current_frame.f_back.f_back
         init_args = {}
         for local_args in collect_init_args(frame, []):
-            init_args.update(local_args)
+            init_args |= local_args
 
         self.work.trainer_hparams = self._sanitize_trainer_init_args(init_args)
 
@@ -297,9 +297,11 @@ class PLAppArtifactsTracker(Callback):
         for logger in trainer.loggers:
             metadata = {"class_name": logger.__class__.__name__}
             if isinstance(logger, WandbLogger) and not logger._offline:
-                metadata.update(
-                    {"username": logger.experiment.entity, "project_name": logger.name, "run_id": logger.version}
-                )
+                metadata |= {
+                    "username": logger.experiment.entity,
+                    "project_name": logger.name,
+                    "run_id": logger.version,
+                }
 
             if metadata and metadata not in self.work.logger_metadatas:
                 self.work.logger_metadatas.append(metadata)
@@ -308,10 +310,10 @@ class PLAppArtifactsTracker(Callback):
     def _get_logdir(trainer: "pl.Trainer") -> str:
         """The code here is the same as in the ``Trainer.log_dir``, with the exception of the broadcast call."""
         if len(trainer.loggers) == 1:
-            if isinstance(trainer.logger, TensorBoardLogger):
-                dirpath = trainer.logger.log_dir
-            else:
-                dirpath = trainer.logger.save_dir
+            return (
+                trainer.logger.log_dir
+                if isinstance(trainer.logger, TensorBoardLogger)
+                else trainer.logger.save_dir
+            )
         else:
-            dirpath = trainer.default_root_dir
-        return dirpath
+            return trainer.default_root_dir

@@ -79,10 +79,6 @@ class MLServer(LightningWork):
             # 4. Increment the version for the next time run is called.
             self.version += 1
 
-        else:
-            # TODO: Load the next model and unload the previous one.
-            pass
-
     def alive(self):
         # Current hack, when the url is available,
         # the server is up and running.

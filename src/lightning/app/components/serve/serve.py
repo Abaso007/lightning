@@ -165,6 +165,5 @@ def _maybe_create_instance() -> Optional[ModelInferenceAPI]:
     return cls(input=input, output=output)
 
 
-instance = _maybe_create_instance()
-if instance:
+if instance := _maybe_create_instance():
     instance._populate_app(fastapi_service)

@@ -39,7 +39,7 @@ class FileServer(LightningWork):
         os.makedirs(self.base_dir, exist_ok=True)
 
         # 3: Keep a reference to the uploaded filenames.
-        self.uploaded_files = dict()
+        self.uploaded_files = {}
 
     def get_filepath(self, path: str) -> str:
         """Returns file path stored on the file server."""
@@ -54,7 +54,7 @@ class FileServer(LightningWork):
         # 1: Track metadata about the file
         filename = file.filename
         uploaded_file = self.get_random_filename()
-        meta_file = uploaded_file + ".meta"
+        meta_file = f"{uploaded_file}.meta"
         self.uploaded_files[filename] = {
             "progress": (0, None), "done": False
         }
@@ -62,8 +62,7 @@ class FileServer(LightningWork):
         # 2: Create a stream and write bytes of
         # the file to the disk under `uploaded_file` path.
         with open(self.get_filepath(uploaded_file), "wb") as out_file:
-            content = file.read(self.chunk_size)
-            while content:
+            while content := file.read(self.chunk_size):
                 # 2.1 Write the file bytes
                 size = out_file.write(content)
 
@@ -72,9 +71,6 @@ class FileServer(LightningWork):
                     self.uploaded_files[filename]["progress"][0] + size,
                     None,
                 )
-                # 4: Read next chunk of data
-                content = file.read(self.chunk_size)
-
         # 3: Update metadata that the file has been uploaded.
         full_size = self.uploaded_files[filename]["progress"][0]
         self.drive.put(self.get_filepath(uploaded_file))
@@ -115,7 +111,7 @@ class FileServer(LightningWork):
                         for filename, meta in self.uploaded_files.items():
                             if meta["uploaded_file"] == file:
                                 result.add(filename)
-            return {"asset_names": [v for v in result]}
+            return {"asset_names": list(result)}
 
         # 3: If the filepath is a tar or zip file, list their contents
         if zipfile.is_zipfile(file_path):
@@ -174,8 +170,8 @@ class TestFileServer(LightningWork):
                 f.write("Some text.")
 
             response = requests.post(
-                file_server_url + "/upload_file/",
-                files={'file': open("test.txt", 'rb')}
+                f"{file_server_url}/upload_file/",
+                files={'file': open("test.txt", 'rb')},
             )
             assert response.status_code == 200
         else:

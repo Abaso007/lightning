@@ -193,8 +193,7 @@ class ProgressBar(Callback):
         """
         standard_metrics = get_standard_metrics(trainer)
         pbar_metrics = trainer.progress_bar_metrics
-        duplicates = list(standard_metrics.keys() & pbar_metrics.keys())
-        if duplicates:
+        if duplicates := list(standard_metrics.keys() & pbar_metrics.keys()):
             rank_zero_warn(
                 f"The progress bar already tracks a metric with the name(s) '{', '.join(duplicates)}' and"
                 f" `self.log('{duplicates[0]}', ..., prog_bar=True)` will overwrite this value. "

@@ -55,6 +55,8 @@ def _pydantic_column_type(pydantic_type: Any) -> Any:
 
     """
 
+
+
     class PydanticJSONType(TypeDecorator, Generic[T]):
         impl = JSON()
 
@@ -114,16 +116,13 @@ def _pydantic_column_type(pydantic_type: Any) -> Any:
             else:
 
                 def process(value):
-                    if value is None:
-                        return None
-
-                    # Explicitly use the generic directly, not type(T)
-                    return parse_obj_as(pydantic_type, value)
+                    return None if value is None else parse_obj_as(pydantic_type, value)
 
             return process
 
         def compare_values(self, x, y):
             return x == y
+
 
     return PydanticJSONType
 

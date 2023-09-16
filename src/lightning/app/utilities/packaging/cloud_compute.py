@@ -36,15 +36,15 @@ class _CloudComputeStore:
 
         if found_index is not None:
             self.component_names[found_index] = new_component_name
-        else:
-            if (
+        elif (
                 len(self.component_names) == 1
                 and not ENABLE_MULTIPLE_WORKS_IN_NON_DEFAULT_CONTAINER
                 and self.id != "default"
             ):
-                raise Exception(
-                    f"A Cloud Compute can be assigned only to a single Work. Attached to {self.component_names[0]}"
-                )
+            raise Exception(
+                f"A Cloud Compute can be assigned only to a single Work. Attached to {self.component_names[0]}"
+            )
+        else:
             self.component_names.append(new_component_name)
 
     def remove(self, new_component_name: str) -> None:
@@ -106,11 +106,7 @@ class CloudCompute:
         self.name = self.name.lower()
 
         if self.shm_size is None:
-            if "gpu" in self.name:
-                self.shm_size = 1024
-            else:
-                self.shm_size = 0
-
+            self.shm_size = 1024 if "gpu" in self.name else 0
         if self.interruptible:
             if not enable_interruptible_works():
                 raise ValueError("CloudCompute with `interruptible=True` isn't supported yet.")
@@ -118,7 +114,7 @@ class CloudCompute:
                 raise ValueError("CloudCompute `interruptible=True` is supported only with GPU.")
 
         # FIXME: Clean the mess on the platform side
-        if self.name == "default" or self.name == "cpu":
+        if self.name in ["default", "cpu"]:
             self.name = "cpu-small"
             self._internal_id = "default"
 
@@ -131,7 +127,7 @@ class CloudCompute:
 
         if self.colocation_group_id is not None and (
             not isinstance(self.colocation_group_id, str)
-            or (isinstance(self.colocation_group_id, str) and len(self.colocation_group_id) > 64)
+            or len(self.colocation_group_id) > 64
         ):
             raise ValueError("colocation_group_id can only be a string of maximum 64 characters.")
 

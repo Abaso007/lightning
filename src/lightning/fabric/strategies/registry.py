@@ -57,7 +57,7 @@ class _StrategyRegistry(dict):
             init_params: parameters to initialize the strategy
 
         """
-        if not (name is None or isinstance(name, str)):
+        if name is not None and not isinstance(name, str):
             raise TypeError(f"`name` must be a str, found {name}")
 
         if name in self and not override:
@@ -74,10 +74,7 @@ class _StrategyRegistry(dict):
             self[name] = data
             return strategy
 
-        if strategy is not None:
-            return do_register(strategy)
-
-        return do_register
+        return do_register(strategy) if strategy is not None else do_register
 
     def get(self, name: str, default: Optional[Any] = None) -> Any:
         """Calls the registered strategy with the required parameters and returns the strategy object.
@@ -106,4 +103,4 @@ class _StrategyRegistry(dict):
         return list(self.keys())
 
     def __str__(self) -> str:
-        return "Registered Strategies: {}".format(", ".join(self.keys()))
+        return f'Registered Strategies: {", ".join(self.keys())}'

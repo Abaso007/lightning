@@ -67,13 +67,14 @@ def connect_data(
         client = LightningClient(retry=False)
         projects = client.projects_service_list_memberships()
 
-        project_id = None
-
-        for project in projects.memberships:
-            if project.name == project_name:
-                project_id = project.project_id
-                break
-
+        project_id = next(
+            (
+                project.project_id
+                for project in projects.memberships
+                if project.name == project_name
+            ),
+            None,
+        )
         if project_id is None:
             project_id = _get_project(client).project_id
 

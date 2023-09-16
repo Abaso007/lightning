@@ -82,17 +82,16 @@ def cd(path: Optional[Union[Tuple[str], str]], verify: bool = True) -> None:
                 root = "/"
             elif not path.startswith(".."):
                 if not path.startswith("/"):
-                    path = "/" + path
+                    path = f"/{path}"
                 root = path
             else:
                 root = _apply_double_dots(root, path)
+        elif path.startswith(".."):
+            root = _apply_double_dots(root, path)
+        elif path.startswith("~"):
+            root = path[2:]
         else:
-            if path.startswith(".."):
-                root = _apply_double_dots(root, path)
-            elif path.startswith("~"):
-                root = path[2:]
-            else:
-                root = os.path.join(root, path)
+            root = os.path.join(root, path)
 
         if verify and root != "/" and not any(p.startswith(root) or root.startswith(p) for p in paths):
             _error_and_exit(f"no such file or directory: {path}")

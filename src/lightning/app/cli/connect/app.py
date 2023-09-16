@@ -234,21 +234,18 @@ def disconnect_app(logout: bool = False):
             click.echo("You are disconnected from the local Lightning App.")
         else:
             click.echo(f"You are disconnected from the cloud Lightning App: {result}.")
-    else:
-        if not logout:
-            click.echo(
-                "You aren't connected to any Lightning App. "
-                "Please use `lightning connect app_name_or_id` to connect to one."
-            )
+    elif not logout:
+        click.echo(
+            "You aren't connected to any Lightning App. "
+            "Please use `lightning connect app_name_or_id` to connect to one."
+        )
 
 
 def _read_connected_file(connected_file):
     if os.path.exists(connected_file):
         with open(connected_file) as f:
             lines = [line.replace("\n", "") for line in f.readlines()]
-            if len(lines) == 2:
-                return lines[0], lines[1]
-            return lines[0], None
+            return (lines[0], lines[1]) if len(lines) == 2 else (lines[0], None)
     return None, None
 
 
@@ -327,12 +324,14 @@ def _install_missing_requirements(
                 requirements.add(req)
 
     if requirements:
-        missing_requirements = []
-        for req in requirements:
-            if not (package_available(req) or package_available(req.replace("-", "_"))):
-                missing_requirements.append(req)
-
-        if missing_requirements:
+        if missing_requirements := [
+            req
+            for req in requirements
+            if not (
+                package_available(req)
+                or package_available(req.replace("-", "_"))
+            )
+        ]:
             if fail_if_missing:
                 missing_requirements = " ".join(missing_requirements)
                 print(f"The command failed as you are missing the following requirements: `{missing_requirements}`.")

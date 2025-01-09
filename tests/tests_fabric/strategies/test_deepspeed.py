@@ -25,7 +25,7 @@ from lightning.fabric.strategies import DeepSpeedStrategy
 from tests_fabric.helpers.runif import RunIf
 
 
-@pytest.fixture()
+@pytest.fixture
 def deepspeed_config():
     return {
         "optimizer": {"type": "SGD", "params": {"lr": 3e-5}},
@@ -36,7 +36,7 @@ def deepspeed_config():
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def deepspeed_zero_config(deepspeed_config):
     return {**deepspeed_config, "zero_allow_untested_optimizer": True, "zero_optimization": {"stage": 2}}
 
@@ -400,10 +400,12 @@ def test_validate_parallel_devices_indices(device_indices):
     DeepSpeed doesn't support it and needs the index to match to the local rank of the process.
 
     """
+    accelerator = Mock(spec=CUDAAccelerator)
     strategy = DeepSpeedStrategy(
-        accelerator=CUDAAccelerator(), parallel_devices=[torch.device("cuda", i) for i in device_indices]
+        accelerator=accelerator, parallel_devices=[torch.device("cuda", i) for i in device_indices]
     )
     with pytest.raises(
         RuntimeError, match=escape(f"device indices {device_indices!r} don't match the local rank values of processes")
     ):
         strategy.setup_environment()
+    accelerator.setup_device.assert_called_once_with(torch.device("cuda", device_indices[0]))

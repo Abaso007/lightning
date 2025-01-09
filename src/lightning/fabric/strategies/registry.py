@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
+
+from typing_extensions import override
 
 
 class _StrategyRegistry(dict):
@@ -63,7 +65,7 @@ class _StrategyRegistry(dict):
         if name in self and not override:
             raise ValueError(f"'{name}' is already present in the registry. HINT: Use `override=True`.")
 
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         data["description"] = description if description is not None else ""
 
         data["init_params"] = init_params
@@ -79,6 +81,7 @@ class _StrategyRegistry(dict):
 
         return do_register
 
+    @override
     def get(self, name: str, default: Optional[Any] = None) -> Any:
         """Calls the registered strategy with the required parameters and returns the strategy object.
 
@@ -101,7 +104,7 @@ class _StrategyRegistry(dict):
         """Removes the registered strategy by name."""
         self.pop(name)
 
-    def available_strategies(self) -> List:
+    def available_strategies(self) -> list:
         """Returns a list of registered strategies."""
         return list(self.keys())
 

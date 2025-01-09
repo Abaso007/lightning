@@ -1,4 +1,5 @@
 """Root package info."""
+
 import logging
 
 # explicitly don't set root logger's propagation and leave this to subpackages to manage
@@ -13,7 +14,7 @@ _console.setFormatter(formatter)
 _logger.addHandler(_console)
 
 from lightning.__about__ import *  # noqa: E402, F403
-from lightning.__version__ import version as __version__  # noqa: E402, F401
+from lightning.__version__ import version as __version__  # noqa: E402
 from lightning.fabric.fabric import Fabric  # noqa: E402
 from lightning.fabric.utilities.seed import seed_everything  # noqa: E402
 from lightning.pytorch.callbacks import Callback  # noqa: E402
@@ -27,4 +28,5 @@ __all__ = [
     "Callback",
     "seed_everything",
     "Fabric",
+    "__version__",
 ]

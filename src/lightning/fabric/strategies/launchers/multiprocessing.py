@@ -16,17 +16,19 @@ import os
 from dataclasses import dataclass
 from multiprocessing.queues import SimpleQueue
 from textwrap import dedent
-from typing import Any, Callable, Dict, Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
 import torch
 import torch.backends.cudnn
 import torch.multiprocessing as mp
 from lightning_utilities import apply_to_collection
 from torch.nn import Module
+from typing_extensions import override
 
 from lightning.fabric.accelerators.cpu import CPUAccelerator
 from lightning.fabric.strategies.launchers.launcher import _Launcher
 from lightning.fabric.utilities.apply_func import move_data_to_device
+from lightning.fabric.utilities.distributed import _set_num_threads_if_needed
 from lightning.fabric.utilities.imports import _IS_INTERACTIVE
 from lightning.fabric.utilities.seed import _collect_rng_states, _set_rng_states
 
@@ -72,12 +74,14 @@ class _MultiProcessingLauncher(_Launcher):
             )
 
     @property
+    @override
     def is_interactive_compatible(self) -> bool:
         # The start method 'spawn' is not supported in interactive environments
         # The start method 'fork' is the only one supported in Jupyter environments, with constraints around CUDA
         # initialization. For more context, see https://github.com/Lightning-AI/lightning/issues/7550
         return self._start_method == "fork"
 
+    @override
     def launch(self, function: Callable, *args: Any, **kwargs: Any) -> Any:
         """Launches processes that run the given function in parallel.
 
@@ -129,9 +133,10 @@ class _MultiProcessingLauncher(_Launcher):
     ) -> None:
         if global_states:
             global_states.restore()
-
         if self._start_method == "spawn" and isinstance(self._strategy.accelerator, CPUAccelerator):
             args, kwargs = _disable_module_memory_sharing((args, kwargs))
+
+        _set_num_threads_if_needed(num_processes=self._strategy.num_processes)
 
         os.environ["LOCAL_RANK"] = str(process_idx)
         results = function(*args, **kwargs)
@@ -162,7 +167,7 @@ class _GlobalStateSnapshot:
     use_deterministic_algorithms: bool
     use_deterministic_algorithms_warn_only: bool
     cudnn_benchmark: bool
-    rng_states: Dict[str, Any]
+    rng_states: dict[str, Any]
 
     @classmethod
     def capture(cls) -> "_GlobalStateSnapshot":
@@ -207,6 +212,7 @@ def _disable_module_memory_sharing(data: Any) -> Any:
     """Disables memory sharing on parameters and buffers of `nn.Module`s contained in the given collection.
 
     Note: This is only required when running on CPU.
+
     """
     # PyTorch enables memory sharing automatically on all tensors that are passed through `mp.spawn`.
     # For model weights and buffers, this is undesired and can lead to race conditions between processes.

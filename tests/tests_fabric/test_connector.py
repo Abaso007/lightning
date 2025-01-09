@@ -14,7 +14,8 @@
 import inspect
 import os
 import sys
-from typing import Any, Dict
+from contextlib import nullcontext
+from typing import Any
 from unittest import mock
 from unittest.mock import Mock
 
@@ -32,6 +33,7 @@ from lightning.fabric.accelerators.cuda import CUDAAccelerator
 from lightning.fabric.accelerators.mps import MPSAccelerator
 from lightning.fabric.connector import _Connector
 from lightning.fabric.plugins import (
+    BitsandbytesPrecision,
     DeepSpeedPrecision,
     DoublePrecision,
     FSDPPrecision,
@@ -49,12 +51,12 @@ from lightning.fabric.plugins.environments import (
     XLAEnvironment,
 )
 from lightning.fabric.plugins.io import TorchCheckpointIO
-from lightning.fabric.plugins.precision.transformer_engine import TransformerEnginePrecision
 from lightning.fabric.strategies import (
     DataParallelStrategy,
     DDPStrategy,
     DeepSpeedStrategy,
     FSDPStrategy,
+    ModelParallelStrategy,
     SingleDeviceStrategy,
     SingleDeviceXLAStrategy,
     XLAFSDPStrategy,
@@ -62,7 +64,7 @@ from lightning.fabric.strategies import (
 )
 from lightning.fabric.strategies.ddp import _DDP_FORK_ALIASES
 from lightning.fabric.strategies.launchers.subprocess_script import _SubprocessScriptLauncher
-from lightning.fabric.utilities.imports import _IS_WINDOWS, _TORCH_GREATER_EQUAL_1_12
+from lightning.fabric.utilities.imports import _IS_WINDOWS
 from tests_fabric.conftest import mock_tpu_available
 from tests_fabric.helpers.runif import RunIf
 
@@ -163,7 +165,7 @@ def test_custom_accelerator(*_):
         def setup_device(self, device: torch.device) -> None:
             pass
 
-        def get_device_stats(self, device: torch.device) -> Dict[str, Any]:
+        def get_device_stats(self, device: torch.device) -> dict[str, Any]:
             pass
 
         def teardown(self) -> None:
@@ -265,6 +267,11 @@ def test_interactive_incompatible_backend_error(_, monkeypatch):
         _Connector(strategy="dp", accelerator="cpu")
 
 
+def test_precision_and_precision_plugin_raises():
+    with pytest.raises(ValueError, match="both `precision=16-true` and `plugins"):
+        _Connector(precision="16-true", plugins=Precision())
+
+
 @mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=2)
 @mock.patch("lightning.fabric.accelerators.mps.MPSAccelerator.is_available", return_value=False)
 def test_interactive_compatible_dp_strategy_gpu(_, __, monkeypatch):
@@ -314,6 +321,13 @@ def test_strategy_choice_multi_node_gpu(_, strategy, strategy_class, devices):
     assert isinstance(connector.strategy, strategy_class)
 
 
+def test_num_nodes_input_validation():
+    with pytest.raises(ValueError, match="`num_nodes` must be a positive integer"):
+        _Connector(num_nodes=0)
+    with pytest.raises(ValueError, match="`num_nodes` must be a positive integer"):
+        _Connector(num_nodes=-1)
+
+
 @mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=0)
 def test_cuda_accelerator_can_not_run_on_system(_):
     connector = _Connector(accelerator="cpu")
@@ -328,14 +342,15 @@ def test_cuda_accelerator_can_not_run_on_system(_):
 
 @pytest.mark.skipif(XLAAccelerator.is_available(), reason="test requires missing TPU")
 @mock.patch("lightning.fabric.accelerators.xla._XLA_AVAILABLE", True)
-def test_tpu_accelerator_can_not_run_on_system():
+@mock.patch("lightning.fabric.accelerators.xla._using_pjrt", return_value=True)
+def test_tpu_accelerator_can_not_run_on_system(_):
     with pytest.raises(RuntimeError, match="XLAAccelerator` can not run on your system"):
         _Connector(accelerator="tpu", devices=8)
 
 
 @mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=2)
 @pytest.mark.parametrize("device_count", [["0"], [0, "1"], ["GPU"], [["0", "1"], [0, 1]], [False]])
-def test_accelererator_invalid_type_devices(_, device_count):
+def test_accelerator_invalid_type_devices(_, device_count):
     with pytest.raises(TypeError, match=r"must be an int, a string, a sequence of ints, but you"):
         _ = _Connector(accelerator="gpu", devices=device_count)
 
@@ -593,6 +608,26 @@ def test_strategy_choice_ddp_torchelastic(*_):
 @mock.patch.dict(
     os.environ,
     {
+        "TORCHELASTIC_RUN_ID": "1",
+        "SLURM_NTASKS": "2",
+        "WORLD_SIZE": "2",
+        "RANK": "1",
+        "LOCAL_RANK": "1",
+    },
+)
+@mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=2)
+@mock.patch("lightning.fabric.accelerators.mps.MPSAccelerator.is_available", return_value=False)
+def test_torchelastic_priority_over_slurm(*_):
+    """Test that the TorchElastic cluster environment is chosen over SLURM when both are detected."""
+    assert TorchElasticEnvironment.detect()
+    assert SLURMEnvironment.detect()
+    connector = _Connector(strategy="ddp")
+    assert isinstance(connector.strategy.cluster_environment, TorchElasticEnvironment)
+
+
+@mock.patch.dict(
+    os.environ,
+    {
         "CUDA_VISIBLE_DEVICES": "0",
         "KUBERNETES_PORT": "tcp://127.0.0.1:443",
         "MASTER_ADDR": "1.2.3.4",
@@ -660,9 +695,8 @@ def test_unsupported_tpu_choice(_, tpu_available):
         _Connector(accelerator="tpu", precision="16-true", strategy="ddp")
 
     # wrong precision plugin type
-    strategy = XLAStrategy(accelerator=XLAAccelerator(), precision=Precision())
-    with pytest.raises(ValueError, match="XLAAccelerator` can only be used with a `XLAPrecision` plugin"):
-        _Connector(strategy=strategy)
+    with pytest.raises(TypeError, match="can only work with the `XLAPrecision` plugin"):
+        XLAStrategy(accelerator=XLAAccelerator(), precision=Precision())
 
     # wrong strategy type
     strategy = DDPStrategy(accelerator=XLAAccelerator(), precision=XLAPrecision(precision="16-true"))
@@ -746,7 +780,6 @@ def test_gpu_accelerator_backend_choice_cuda(*_):
     assert isinstance(connector.accelerator, CUDAAccelerator)
 
 
-@RunIf(min_torch="1.12")
 @mock.patch("lightning.fabric.accelerators.mps.MPSAccelerator.is_available", return_value=True)
 @mock.patch("lightning.fabric.accelerators.mps._get_all_available_mps_gpus", return_value=[0])
 @mock.patch("torch.device", DeviceMock)
@@ -783,11 +816,11 @@ def test_ddp_fork_on_unsupported_platform(_, __, strategy):
         ("bf16-true", "auto", HalfPrecision),
         ("16-mixed", "auto", MixedPrecision),
         ("bf16-mixed", "auto", MixedPrecision),
-        pytest.param("32-true", "fsdp", FSDPPrecision, marks=RunIf(min_torch="1.12", min_cuda_gpus=1)),
-        pytest.param("16-true", "fsdp", FSDPPrecision, marks=RunIf(min_torch="1.12", min_cuda_gpus=1)),
-        pytest.param("bf16-true", "fsdp", FSDPPrecision, marks=RunIf(min_torch="1.12", min_cuda_gpus=1)),
-        pytest.param("16-mixed", "fsdp", FSDPPrecision, marks=RunIf(min_torch="1.12", min_cuda_gpus=1)),
-        pytest.param("bf16-mixed", "fsdp", FSDPPrecision, marks=RunIf(min_torch="1.12", min_cuda_gpus=1)),
+        pytest.param("32-true", "fsdp", FSDPPrecision, marks=RunIf(min_cuda_gpus=1)),
+        pytest.param("16-true", "fsdp", FSDPPrecision, marks=RunIf(min_cuda_gpus=1)),
+        pytest.param("bf16-true", "fsdp", FSDPPrecision, marks=RunIf(min_cuda_gpus=1)),
+        pytest.param("16-mixed", "fsdp", FSDPPrecision, marks=RunIf(min_cuda_gpus=1)),
+        pytest.param("bf16-mixed", "fsdp", FSDPPrecision, marks=RunIf(min_cuda_gpus=1)),
         pytest.param("32-true", "deepspeed", DeepSpeedPrecision, marks=RunIf(deepspeed=True, mps=False)),
         pytest.param("16-true", "deepspeed", DeepSpeedPrecision, marks=RunIf(deepspeed=True, mps=False)),
         pytest.param("bf16-true", "deepspeed", DeepSpeedPrecision, marks=RunIf(deepspeed=True, mps=False)),
@@ -820,16 +853,38 @@ class MyAMP(MixedPrecision):
 )
 def test_precision_selection_amp_ddp(strategy, devices, is_custom_plugin, plugin_cls):
     plugin = None
+    precision = None
     if is_custom_plugin:
         plugin = plugin_cls("16-mixed", "cpu")
+    else:
+        precision = "16-mixed"
     connector = _Connector(
         accelerator="cpu",
-        precision="16-mixed",
+        precision=precision,
         devices=devices,
         strategy=strategy,
         plugins=plugin,
     )
     assert isinstance(connector.precision, plugin_cls)
+
+
+@RunIf(min_torch="2.4")
+@pytest.mark.parametrize(
+    ("precision", "raises"),
+    [("32-true", False), ("16-true", False), ("bf16-true", False), ("16-mixed", True), ("bf16-mixed", False)],
+)
+@mock.patch("lightning.fabric.accelerators.mps.MPSAccelerator.is_available", return_value=False)
+def test_precision_selection_model_parallel(_, precision, raises):
+    error_context = pytest.raises(ValueError, match=f"does not support .*{precision}") if raises else nullcontext()
+    with error_context:
+        _Connector(precision=precision, strategy=ModelParallelStrategy(lambda x, _: x))
+
+
+def test_bitsandbytes_precision_cuda_required(monkeypatch):
+    monkeypatch.setattr(lightning.fabric.plugins.precision.bitsandbytes, "_BITSANDBYTES_AVAILABLE", True)
+    monkeypatch.setitem(sys.modules, "bitsandbytes", Mock())
+    with pytest.raises(RuntimeError, match="Bitsandbytes is only supported on CUDA GPUs"):
+        _Connector(accelerator="cpu", plugins=BitsandbytesPrecision(mode="int8"))
 
 
 @pytest.mark.parametrize(("strategy", "strategy_cls"), [("DDP", DDPStrategy), ("Ddp", DDPStrategy)])
@@ -839,16 +894,25 @@ def test_strategy_str_passed_being_case_insensitive(_, strategy, strategy_cls):
     assert isinstance(connector.strategy, strategy_cls)
 
 
-@pytest.mark.parametrize("precision", [None, "64-true", "32-true", "16-mixed", "bf16-mixed"])
+@pytest.mark.parametrize(
+    ("precision", "expected"),
+    [
+        (None, Precision),
+        ("64-true", DoublePrecision),
+        ("32-true", Precision),
+        ("16-true", HalfPrecision),
+        ("16-mixed", MixedPrecision),
+    ],
+)
 @mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=1)
-def test_precision_from_environment(_, precision):
+def test_precision_from_environment(_, precision, expected):
     """Test that the precision input can be set through the environment variable."""
-    env_vars = {}
+    env_vars = {"LT_CLI_USED": "1"}
     if precision is not None:
         env_vars["LT_PRECISION"] = precision
     with mock.patch.dict(os.environ, env_vars):
         connector = _Connector(accelerator="cuda")  # need to use cuda, because AMP not available on CPU
-    assert isinstance(connector.precision, Precision)
+    assert isinstance(connector.precision, expected)
 
 
 @pytest.mark.parametrize(
@@ -866,7 +930,7 @@ def test_precision_from_environment(_, precision):
 )
 def test_accelerator_strategy_from_environment(accelerator, strategy, expected_accelerator, expected_strategy):
     """Test that the accelerator and strategy input can be set through the environment variables."""
-    env_vars = {}
+    env_vars = {"LT_CLI_USED": "1"}
     if accelerator is not None:
         env_vars["LT_ACCELERATOR"] = accelerator
     if strategy is not None:
@@ -881,7 +945,7 @@ def test_accelerator_strategy_from_environment(accelerator, strategy, expected_a
 @mock.patch("lightning.fabric.accelerators.cuda.num_cuda_devices", return_value=8)
 def test_devices_from_environment(*_):
     """Test that the devices and number of nodes can be set through the environment variables."""
-    with mock.patch.dict(os.environ, {"LT_DEVICES": "2", "LT_NUM_NODES": "3"}):
+    with mock.patch.dict(os.environ, {"LT_DEVICES": "2", "LT_NUM_NODES": "3", "LT_CLI_USED": "1"}):
         connector = _Connector(accelerator="cuda")
         assert isinstance(connector.accelerator, CUDAAccelerator)
         assert isinstance(connector.strategy, DDPStrategy)
@@ -896,38 +960,52 @@ def test_arguments_from_environment_collision():
     with mock.patch.dict(os.environ, {"LT_ACCELERATOR": "cpu"}):
         _Connector(accelerator="cuda")
 
-    with mock.patch.dict(os.environ, {"LT_ACCELERATOR": "cpu", "LT_CLI_USED": "1"}), pytest.raises(
-        ValueError, match="`Fabric\\(accelerator='cuda', ...\\)` but .* `--accelerator=cpu`"
+    with (
+        mock.patch.dict(os.environ, {"LT_ACCELERATOR": "cpu", "LT_CLI_USED": "1"}),
+        pytest.raises(ValueError, match="`Fabric\\(accelerator='cuda', ...\\)` but .* `--accelerator=cpu`"),
     ):
         _Connector(accelerator="cuda")
 
-    with mock.patch.dict(os.environ, {"LT_STRATEGY": "ddp", "LT_CLI_USED": "1"}), pytest.raises(
-        ValueError, match="`Fabric\\(strategy='ddp_spawn', ...\\)` but .* `--strategy=ddp`"
+    with (
+        mock.patch.dict(os.environ, {"LT_STRATEGY": "ddp", "LT_CLI_USED": "1"}),
+        pytest.raises(ValueError, match="`Fabric\\(strategy='ddp_spawn', ...\\)` but .* `--strategy=ddp`"),
     ):
         _Connector(strategy="ddp_spawn")
 
-    with mock.patch.dict(os.environ, {"LT_DEVICES": "2", "LT_CLI_USED": "1"}), pytest.raises(
-        ValueError, match="`Fabric\\(devices=3, ...\\)` but .* `--devices=2`"
+    with (
+        mock.patch.dict(os.environ, {"LT_DEVICES": "2", "LT_CLI_USED": "1"}),
+        pytest.raises(ValueError, match="`Fabric\\(devices=3, ...\\)` but .* `--devices=2`"),
     ):
         _Connector(devices=3)
 
-    with mock.patch.dict(os.environ, {"LT_NUM_NODES": "3", "LT_CLI_USED": "1"}), pytest.raises(
-        ValueError, match="`Fabric\\(num_nodes=2, ...\\)` but .* `--num_nodes=3`"
+    with (
+        mock.patch.dict(os.environ, {"LT_NUM_NODES": "3", "LT_CLI_USED": "1"}),
+        pytest.raises(ValueError, match="`Fabric\\(num_nodes=2, ...\\)` but .* `--num_nodes=3`"),
     ):
         _Connector(num_nodes=2)
 
-    with mock.patch.dict(os.environ, {"LT_PRECISION": "16-mixed", "LT_CLI_USED": "1"}), pytest.raises(
-        ValueError, match="`Fabric\\(precision='64-true', ...\\)` but .* `--precision=16-mixed`"
+    with (
+        mock.patch.dict(os.environ, {"LT_PRECISION": "16-mixed", "LT_CLI_USED": "1"}),
+        pytest.raises(ValueError, match="`Fabric\\(precision='64-true', ...\\)` but .* `--precision=16-mixed`"),
     ):
         _Connector(precision="64-true")
 
 
-@RunIf(min_torch="1.12")
 @mock.patch("lightning.fabric.accelerators.mps.MPSAccelerator.is_available", return_value=False)
 def test_fsdp_unsupported_on_cpu(_):
     """Test that we raise an error if attempting to run FSDP without GPU."""
     with pytest.raises(ValueError, match="You selected the FSDP strategy but FSDP is only available on GPU"):
         _Connector(accelerator="cpu", strategy="fsdp")
+
+    class FSDPStrategySubclass(FSDPStrategy):
+        pass
+
+    class AcceleratorSubclass(CPUAccelerator):
+        pass
+
+    # we allow subclasses of FSDPStrategy to be used with other accelerators
+    _Connector(accelerator="cpu", strategy=FSDPStrategySubclass())
+    _Connector(accelerator=AcceleratorSubclass(), strategy=FSDPStrategySubclass())
 
 
 def test_connector_defaults_match_fabric_defaults():
@@ -994,8 +1072,6 @@ def test_connector_auto_selection(monkeypatch, is_interactive):
     # MPS (there's no distributed)
     with no_cuda, single_mps, monkeypatch.context():
         mock_tpu_available(monkeypatch, False)
-        if not _TORCH_GREATER_EQUAL_1_12:
-            monkeypatch.setattr(torch, "device", Mock())
         connector = _Connector()
     assert isinstance(connector.accelerator, MPSAccelerator)
     assert isinstance(connector.strategy, SingleDeviceStrategy)
@@ -1061,95 +1137,3 @@ def test_xla_fsdp_automatic_strategy_selection(monkeypatch, tpu_available):
 
     if added_fsdp:
         strategies.STRATEGY_REGISTRY.pop("fsdp")
-
-
-def test_connector_transformer_engine(monkeypatch):
-    monkeypatch.setattr(
-        lightning.fabric.plugins.precision.transformer_engine, "_TRANSFORMER_ENGINE_AVAILABLE", lambda: True
-    )
-    transformer_engine_mock = Mock()
-    monkeypatch.setitem(sys.modules, "transformer_engine", transformer_engine_mock)
-    monkeypatch.setitem(sys.modules, "transformer_engine.pytorch", Mock())
-    recipe_mock = Mock()
-    monkeypatch.setitem(sys.modules, "transformer_engine.common.recipe", recipe_mock)
-
-    connector = _Connector(precision="transformer-engine")
-    assert isinstance(connector.precision, TransformerEnginePrecision)
-
-    recipe_mock.reset_mock()
-    precision = TransformerEnginePrecision()
-    connector = _Connector(plugins=precision)
-    assert connector.precision is precision
-    assert precision.dtype == torch.float32
-    recipe_mock.DelayedScaling.assert_called_once_with()
-
-    recipe_mock.reset_mock()
-    recipe = {"foo": 0, "fp8_format": "HYBRID"}
-    precision = TransformerEnginePrecision(dtype=torch.float16, recipe=recipe)
-    connector = _Connector(plugins=precision)
-    assert connector.precision is precision
-    recipe_mock.DelayedScaling.assert_called_once_with(foo=0, fp8_format=recipe_mock.Format.HYBRID)
-    assert isinstance(recipe["fp8_format"], str)  # not modified
-
-    # same logic as in `test_default_dtype_is_restored`
-    assert torch.get_default_dtype() is torch.float32
-    with pytest.raises(RuntimeError, match="foo"), precision.init_context():
-        assert torch.get_default_dtype() is not torch.float32
-        raise RuntimeError("foo")
-    assert torch.get_default_dtype() is torch.float32
-
-    class SubModule(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.l = torch.nn.Linear(1, 3)
-
-    class MyModule(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.l1 = torch.nn.Linear(16, 48)
-            self.l2 = torch.nn.LayerNorm(1)
-            self.l3 = SubModule()
-
-    model = MyModule()
-
-    precision.replace_layers = False
-    precision.convert_module(model)
-    assert isinstance(model.l1, torch.nn.Linear)
-    assert model.l1.weight.dtype == torch.float16
-    assert isinstance(model.l3.l, torch.nn.Linear)
-    assert isinstance(model.l2, torch.nn.LayerNorm)
-
-    precision.replace_layers = True
-    setattr_mock = Mock()
-    model.__setattr__ = setattr_mock
-    with pytest.warns(match="divisible by 8 and 16"):
-        precision.convert_module(model)
-    mock_calls = setattr_mock.mock_calls
-    assert len(mock_calls) == 2
-    assert mock_calls[0][1][0] == "l1"
-    assert mock_calls[1][1][0] == "l2"
-    assert mock_calls[0][1][1]._extract_mock_name() == "mock.pytorch.Linear()"
-    assert mock_calls[1][1][1]._extract_mock_name() == "mock.pytorch.LayerNorm()"
-
-    precision.replace_layers = False
-    with precision.init_context():
-        model = MyModule()
-    assert isinstance(model.l1, torch.nn.Linear)
-    assert isinstance(model.l2, torch.nn.LayerNorm)
-    assert isinstance(model.l3.l, torch.nn.Linear)
-
-    class TELinearMock(Mock):
-        ...
-
-    class TELayerNormMock(Mock):
-        ...
-
-    transformer_engine_mock.pytorch.Linear = TELinearMock
-    transformer_engine_mock.pytorch.LayerNorm = TELayerNormMock
-    precision.replace_layers = True
-    with precision.init_context():
-        assert torch.get_default_dtype() == torch.float16
-        model = MyModule()
-    assert isinstance(model.l1, TELinearMock)
-    assert isinstance(model.l2, TELayerNormMock)
-    assert isinstance(model.l3.l, TELinearMock)

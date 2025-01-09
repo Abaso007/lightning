@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import io
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import torch
 from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from typing_extensions import override
 
 from lightning.fabric.accelerators import Accelerator
-from lightning.fabric.accelerators.xla import _using_pjrt, _XLA_GREATER_EQUAL_2_1
+from lightning.fabric.accelerators.xla import _XLA_GREATER_EQUAL_2_1
+from lightning.fabric.plugins import XLAPrecision
 from lightning.fabric.plugins.environments import XLAEnvironment
-from lightning.fabric.plugins.io.checkpoint_io import CheckpointIO
 from lightning.fabric.plugins.io.xla import XLACheckpointIO
-from lightning.fabric.plugins.precision import Precision
-from lightning.fabric.strategies import _StrategyRegistry, ParallelStrategy
+from lightning.fabric.strategies import ParallelStrategy, _StrategyRegistry
 from lightning.fabric.strategies.launchers.xla import _XLALauncher
 from lightning.fabric.strategies.strategy import TBroadcast
 from lightning.fabric.utilities.rank_zero import rank_zero_only
@@ -43,9 +43,9 @@ class XLAStrategy(ParallelStrategy):
     def __init__(
         self,
         accelerator: Optional[Accelerator] = None,
-        parallel_devices: Optional[List[torch.device]] = None,
-        checkpoint_io: Optional[CheckpointIO] = None,
-        precision: Optional[Precision] = None,
+        parallel_devices: Optional[list[torch.device]] = None,
+        checkpoint_io: Optional[XLACheckpointIO] = None,
+        precision: Optional[XLAPrecision] = None,
         sync_module_states: bool = True,
     ) -> None:
         super().__init__(
@@ -55,12 +55,12 @@ class XLAStrategy(ParallelStrategy):
             checkpoint_io=checkpoint_io,
             precision=precision,
         )
-        self._checkpoint_io: Optional[CheckpointIO]
         self._backward_sync_control = None  # XLA synchronizes gradients in the optimizer.step() call
         self._launched = False
         self._sync_module_states = sync_module_states
 
     @property
+    @override
     def root_device(self) -> torch.device:
         if not self._launched:
             raise RuntimeError("Accessing the XLA device before processes have spawned is not allowed.")
@@ -73,37 +73,65 @@ class XLAStrategy(ParallelStrategy):
         return len(self.parallel_devices) if self.parallel_devices is not None else 0
 
     @property
-    def checkpoint_io(self) -> CheckpointIO:
-        if self._checkpoint_io is None:
-            self._checkpoint_io = XLACheckpointIO()
-        return self._checkpoint_io
+    @override
+    def checkpoint_io(self) -> XLACheckpointIO:
+        plugin = self._checkpoint_io
+        if plugin is not None:
+            assert isinstance(plugin, XLACheckpointIO)
+            return plugin
+        return XLACheckpointIO()
 
     @checkpoint_io.setter
-    def checkpoint_io(self, io: CheckpointIO) -> None:
+    @override
+    def checkpoint_io(self, io: Optional[XLACheckpointIO]) -> None:
+        if io is not None and not isinstance(io, XLACheckpointIO):
+            raise TypeError(f"The XLA strategy can only work with the `XLACheckpointIO` plugin, found {io}")
         self._checkpoint_io = io
 
     @property
+    @override
+    def precision(self) -> XLAPrecision:
+        plugin = self._precision
+        if plugin is not None:
+            assert isinstance(plugin, XLAPrecision)
+            return plugin
+        return XLAPrecision("32-true")
+
+    @precision.setter
+    @override
+    def precision(self, precision: Optional[XLAPrecision]) -> None:
+        if precision is not None and not isinstance(precision, XLAPrecision):
+            raise TypeError(f"The XLA strategy can only work with the `XLAPrecision` plugin, found {precision}")
+        self._precision = precision
+
+    @property
+    @override
     def global_rank(self) -> int:
         return super().global_rank if self._launched else 0
 
     @property
+    @override
     def local_rank(self) -> int:
         return super().local_rank if self._launched else 0
 
     @property
+    @override
     def node_rank(self) -> int:
         return super().node_rank if self._launched else 0
 
     @property
+    @override
     def world_size(self) -> int:
         return super().world_size if self._launched else 1
 
+    @override
     def _configure_launcher(self) -> None:
         self._launcher = _XLALauncher(self)
 
+    @override
     def setup_environment(self) -> None:
         assert self.parallel_devices is not None
-        if _using_pjrt() and len(self.parallel_devices) == 1:
+        if len(self.parallel_devices) == 1:
             # spawning only 1 device with PjRT is not supported:
             # https://github.com/Lightning-AI/lightning/pull/17408#discussion_r1170671732
             raise NotImplementedError(
@@ -115,6 +143,7 @@ class XLAStrategy(ParallelStrategy):
         rank_zero_only.rank = self.global_rank
         super().setup_environment()
 
+    @override
     def setup_module(self, module: Module) -> Module:
         if self._sync_module_states:
             if _XLA_GREATER_EQUAL_2_1:
@@ -126,9 +155,11 @@ class XLAStrategy(ParallelStrategy):
 
         return module
 
+    @override
     def module_to_device(self, module: Module) -> None:
         module.to(self.root_device)
 
+    @override
     def process_dataloader(self, dataloader: DataLoader) -> "MpDeviceLoader":
         from torch_xla.distributed.parallel_loader import MpDeviceLoader
 
@@ -142,6 +173,7 @@ class XLAStrategy(ParallelStrategy):
         dataloader.batch_sampler = getattr(dataloader._loader, "batch_sampler", None)
         return dataloader
 
+    @override
     def all_gather(self, tensor: Tensor, group: Optional[Any] = None, sync_grads: bool = False) -> Tensor:
         """Function to gather a tensor from several distributed processes.
 
@@ -171,6 +203,7 @@ class XLAStrategy(ParallelStrategy):
         tensor = tensor.to(original_device)
         return tensor
 
+    @override
     def all_reduce(
         self, output: Union[Tensor, Any], group: Optional[Any] = None, reduce_op: Optional[Union[ReduceOp, str]] = None
     ) -> Tensor:
@@ -193,6 +226,7 @@ class XLAStrategy(ParallelStrategy):
 
         return output
 
+    @override
     def barrier(self, name: Optional[str] = None, *args: Any, **kwargs: Any) -> None:
         if not self._launched:
             return
@@ -203,6 +237,7 @@ class XLAStrategy(ParallelStrategy):
             name = ""
         xm.rendezvous(name)
 
+    @override
     def broadcast(self, obj: TBroadcast, src: int = 0) -> TBroadcast:
         if not self._launched:
             return obj
@@ -237,12 +272,13 @@ class XLAStrategy(ParallelStrategy):
 
         return obj
 
+    @override
     def save_checkpoint(
         self,
         path: _PATH,
-        state: Dict[str, Union[Module, Optimizer, Any]],
+        state: dict[str, Union[Module, Optimizer, Any]],
         storage_options: Optional[Any] = None,
-        filter: Optional[Dict[str, Callable[[str, Any], bool]]] = None,
+        filter: Optional[dict[str, Callable[[str, Any], bool]]] = None,
     ) -> None:
         """Save model, optimizer, and other state as a checkpoint file.
 
@@ -263,5 +299,6 @@ class XLAStrategy(ParallelStrategy):
         super().save_checkpoint(path, state, storage_options=storage_options, filter=filter)
 
     @classmethod
+    @override
     def register_strategies(cls, strategy_registry: _StrategyRegistry) -> None:
-        strategy_registry.register("xla", cls, description=cls.__class__.__name__)
+        strategy_registry.register("xla", cls, description=cls.__name__)

@@ -15,16 +15,24 @@
 Weights and Biases Logger
 -------------------------
 """
+
 import os
 from argparse import Namespace
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Mapping, Optional, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import torch.nn as nn
 from lightning_utilities.core.imports import RequirementCache
 from torch import Tensor
+from typing_extensions import override
 
-from lightning.fabric.utilities.logger import _add_prefix, _convert_params, _sanitize_callable_params
+from lightning.fabric.utilities.logger import (
+    _add_prefix,
+    _convert_json_serializable,
+    _convert_params,
+    _sanitize_callable_params,
+)
 from lightning.fabric.utilities.types import _PATH
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers.logger import Logger, rank_zero_experiment
@@ -41,7 +49,7 @@ _WANDB_AVAILABLE = RequirementCache("wandb>=0.12.10")
 
 
 class WandbLogger(Logger):
-    r"""Log using `Weights and Biases <https://docs.wandb.ai/integrations/lightning>`_.
+    r"""Log using `Weights and Biases <https://docs.wandb.ai/guides/integrations/lightning>`_.
 
     **Installation and set-up**
 
@@ -69,7 +77,7 @@ class WandbLogger(Logger):
 
     **Log metrics**
 
-    Log from :class:`~lightning.pytorch.core.module.LightningModule`:
+    Log from :class:`~lightning.pytorch.core.LightningModule`:
 
     .. code-block:: python
 
@@ -85,7 +93,7 @@ class WandbLogger(Logger):
 
     **Log hyper-parameters**
 
-    Save :class:`~lightning.pytorch.core.module.LightningModule` parameters:
+    Save :class:`~lightning.pytorch.core.LightningModule` parameters:
 
     .. code-block:: python
 
@@ -246,7 +254,7 @@ class WandbLogger(Logger):
 
     See Also:
         - `Demo in Google Colab <http://wandb.me/lightning>`__ with hyperparameter search and model logging
-        - `W&B Documentation <https://docs.wandb.ai/integrations/lightning>`__
+        - `W&B Documentation <https://docs.wandb.ai/guides/integrations/lightning>`__
 
     Args:
         name: Display name for the run.
@@ -313,7 +321,7 @@ class WandbLogger(Logger):
         self._log_model = log_model
         self._prefix = prefix
         self._experiment = experiment
-        self._logged_model_time: Dict[str, float] = {}
+        self._logged_model_time: dict[str, float] = {}
         self._checkpoint_callback: Optional[ModelCheckpoint] = None
 
         # paths are processed as strings
@@ -325,7 +333,7 @@ class WandbLogger(Logger):
         project = project or os.environ.get("WANDB_PROJECT", "lightning_logs")
 
         # set wandb init arguments
-        self._wandb_init: Dict[str, Any] = {
+        self._wandb_init: dict[str, Any] = {
             "name": name,
             "project": project,
             "dir": save_dir or dir,
@@ -341,7 +349,7 @@ class WandbLogger(Logger):
         self._id = self._wandb_init.get("id")
         self._checkpoint_name = checkpoint_name
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> dict[str, Any]:
         import wandb
 
         # Hack: If the 'spawn' launch method is used, the logger will get pickled and this `__getstate__` gets called.
@@ -365,10 +373,8 @@ class WandbLogger(Logger):
     @property
     @rank_zero_experiment
     def experiment(self) -> Union["Run", "RunDisabled"]:
-        r"""
-
-        Actual wandb object. To use wandb features in your
-        :class:`~lightning.pytorch.core.module.LightningModule` do the following.
+        r"""Actual wandb object. To use wandb features in your :class:`~lightning.pytorch.core.LightningModule` do the
+        following.
 
         Example::
 
@@ -409,15 +415,20 @@ class WandbLogger(Logger):
 
         return self._experiment
 
-    def watch(self, model: nn.Module, log: str = "gradients", log_freq: int = 100, log_graph: bool = True) -> None:
+    def watch(
+        self, model: nn.Module, log: Optional[str] = "gradients", log_freq: int = 100, log_graph: bool = True
+    ) -> None:
         self.experiment.watch(model, log=log, log_freq=log_freq, log_graph=log_graph)
 
+    @override
     @rank_zero_only
-    def log_hyperparams(self, params: Union[Dict[str, Any], Namespace]) -> None:  # type: ignore[override]
+    def log_hyperparams(self, params: Union[dict[str, Any], Namespace]) -> None:
         params = _convert_params(params)
         params = _sanitize_callable_params(params)
+        params = _convert_json_serializable(params)
         self.experiment.config.update(params, allow_val_change=True)
 
+    @override
     @rank_zero_only
     def log_metrics(self, metrics: Mapping[str, float], step: Optional[int] = None) -> None:
         assert rank_zero_only.rank == 0, "experiment tried to log from global_rank != 0"
@@ -432,8 +443,8 @@ class WandbLogger(Logger):
     def log_table(
         self,
         key: str,
-        columns: Optional[List[str]] = None,
-        data: Optional[List[List[Any]]] = None,
+        columns: Optional[list[str]] = None,
+        data: Optional[list[list[Any]]] = None,
         dataframe: Any = None,
         step: Optional[int] = None,
     ) -> None:
@@ -451,8 +462,8 @@ class WandbLogger(Logger):
     def log_text(
         self,
         key: str,
-        columns: Optional[List[str]] = None,
-        data: Optional[List[List[str]]] = None,
+        columns: Optional[list[str]] = None,
+        data: Optional[list[list[str]]] = None,
         dataframe: Any = None,
         step: Optional[int] = None,
     ) -> None:
@@ -465,7 +476,7 @@ class WandbLogger(Logger):
         self.log_table(key, columns, data, dataframe, step)
 
     @rank_zero_only
-    def log_image(self, key: str, images: List[Any], step: Optional[int] = None, **kwargs: Any) -> None:
+    def log_image(self, key: str, images: list[Any], step: Optional[int] = None, **kwargs: Any) -> None:
         """Log images (tensors, numpy arrays, PIL Images or file paths).
 
         Optional kwargs are lists passed to each image (ex: caption, masks, boxes).
@@ -484,7 +495,60 @@ class WandbLogger(Logger):
         metrics = {key: [wandb.Image(img, **kwarg) for img, kwarg in zip(images, kwarg_list)]}
         self.log_metrics(metrics, step)  # type: ignore[arg-type]
 
+    @rank_zero_only
+    def log_audio(self, key: str, audios: list[Any], step: Optional[int] = None, **kwargs: Any) -> None:
+        r"""Log audios (numpy arrays, or file paths).
+
+        Args:
+            key: The key to be used for logging the audio files
+            audios: The list of audio file paths, or numpy arrays to be logged
+            step: The step number to be used for logging the audio files
+            \**kwargs: Optional kwargs are lists passed to each ``Wandb.Audio`` instance (ex: caption, sample_rate).
+
+        Optional kwargs are lists passed to each audio (ex: caption, sample_rate).
+
+        """
+        if not isinstance(audios, list):
+            raise TypeError(f'Expected a list as "audios", found {type(audios)}')
+        n = len(audios)
+        for k, v in kwargs.items():
+            if len(v) != n:
+                raise ValueError(f"Expected {n} items but only found {len(v)} for {k}")
+        kwarg_list = [{k: kwargs[k][i] for k in kwargs} for i in range(n)]
+
+        import wandb
+
+        metrics = {key: [wandb.Audio(audio, **kwarg) for audio, kwarg in zip(audios, kwarg_list)]}
+        self.log_metrics(metrics, step)  # type: ignore[arg-type]
+
+    @rank_zero_only
+    def log_video(self, key: str, videos: list[Any], step: Optional[int] = None, **kwargs: Any) -> None:
+        """Log videos (numpy arrays, or file paths).
+
+        Args:
+            key: The key to be used for logging the video files
+            videos: The list of video file paths, or numpy arrays to be logged
+            step: The step number to be used for logging the video files
+            **kwargs: Optional kwargs are lists passed to each Wandb.Video instance (ex: caption, fps, format).
+
+        Optional kwargs are lists passed to each video (ex: caption, fps, format).
+
+        """
+        if not isinstance(videos, list):
+            raise TypeError(f'Expected a list as "videos", found {type(videos)}')
+        n = len(videos)
+        for k, v in kwargs.items():
+            if len(v) != n:
+                raise ValueError(f"Expected {n} items but only found {len(v)} for {k}")
+        kwarg_list = [{k: kwargs[k][i] for k in kwargs} for i in range(n)]
+
+        import wandb
+
+        metrics = {key: [wandb.Video(video, **kwarg) for video, kwarg in zip(videos, kwarg_list)]}
+        self.log_metrics(metrics, step)  # type: ignore[arg-type]
+
     @property
+    @override
     def save_dir(self) -> Optional[str]:
         """Gets the save directory.
 
@@ -495,6 +559,7 @@ class WandbLogger(Logger):
         return self._save_dir
 
     @property
+    @override
     def name(self) -> Optional[str]:
         """The project name of this experiment.
 
@@ -506,6 +571,7 @@ class WandbLogger(Logger):
         return self._project
 
     @property
+    @override
     def version(self) -> Optional[str]:
         """Gets the id of the experiment.
 
@@ -516,6 +582,7 @@ class WandbLogger(Logger):
         # don't create an experiment if we don't have one
         return self._experiment.id if self._experiment else self._id
 
+    @override
     def after_save_checkpoint(self, checkpoint_callback: ModelCheckpoint) -> None:
         # log checkpoints as artifacts
         if self._log_model == "all" or self._log_model is True and checkpoint_callback.save_top_k == -1:
@@ -567,6 +634,7 @@ class WandbLogger(Logger):
         """
         return self.experiment.use_artifact(artifact, type=artifact_type)
 
+    @override
     @rank_zero_only
     def finalize(self, status: str) -> None:
         if status != "success":

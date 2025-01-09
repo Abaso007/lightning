@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
+
+from typing_extensions import override
 
 from lightning.fabric.utilities.exceptions import MisconfigurationException
 from lightning.fabric.utilities.registry import _register_classes
@@ -66,7 +68,7 @@ class _AcceleratorRegistry(dict):
         if name in self and not override:
             raise MisconfigurationException(f"'{name}' is already present in the registry. HINT: Use `override=True`.")
 
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
 
         data["description"] = description
         data["init_params"] = init_params
@@ -82,6 +84,7 @@ class _AcceleratorRegistry(dict):
 
         return do_register
 
+    @override
     def get(self, name: str, default: Optional[Any] = None) -> Any:
         """Calls the registered accelerator with the required parameters and returns the accelerator object.
 
@@ -104,7 +107,7 @@ class _AcceleratorRegistry(dict):
         """Removes the registered accelerator by name."""
         self.pop(name)
 
-    def available_accelerators(self) -> List[str]:
+    def available_accelerators(self) -> list[str]:
         """Returns a list of registered accelerators."""
         return list(self.keys())
 

@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from typing import Dict
+
+from typing_extensions import override
 
 from lightning.fabric.accelerators.xla import _XLA_AVAILABLE
 from lightning.pytorch.profilers.profiler import Profiler
@@ -43,10 +44,11 @@ class XLAProfiler(Profiler):
             raise ModuleNotFoundError(str(_XLA_AVAILABLE))
         super().__init__(dirpath=None, filename=None)
         self.port = port
-        self._recording_map: Dict = {}
-        self._step_recoding_map: Dict = {}
+        self._recording_map: dict = {}
+        self._step_recoding_map: dict = {}
         self._start_trace: bool = False
 
+    @override
     def start(self, action_name: str) -> None:
         import torch_xla.debug.profiler as xp
 
@@ -65,6 +67,7 @@ class XLAProfiler(Profiler):
             recording.__enter__()
             self._recording_map[action_name] = recording
 
+    @override
     def stop(self, action_name: str) -> None:
         if action_name in self._recording_map:
             self._recording_map[action_name].__exit__(None, None, None)

@@ -15,24 +15,29 @@ import logging
 from unittest.mock import Mock, patch
 
 import pytest
+import torch
+from lightning_utilities.test.warning import no_warning_call
 
+from lightning.fabric.utilities.warnings import PossibleUserWarning
+from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.demos.boring_classes import BoringModel
 from lightning.pytorch.trainer.trainer import Trainer
 
 
-def test_no_val_on_train_epoch_loop_restart(tmpdir):
+def test_no_val_on_train_epoch_loop_restart(tmp_path):
     """Test that training validation loop doesn't get triggered at the beginning of a restart."""
     trainer_kwargs = {
         "max_epochs": 1,
         "limit_train_batches": 1,
         "limit_val_batches": 1,
         "num_sanity_val_steps": 0,
+        "logger": False,
         "enable_checkpointing": False,
     }
     trainer = Trainer(**trainer_kwargs)
     model = BoringModel()
     trainer.fit(model)
-    ckpt_path = str(tmpdir / "last.ckpt")
+    ckpt_path = str(tmp_path / "last.ckpt")
     trainer.save_checkpoint(ckpt_path)
 
     trainer_kwargs["max_epochs"] = 2
@@ -137,3 +142,80 @@ def test_training_loop_dataloader_iter_multiple_dataloaders(tmp_path):
     assert model.batch_start_ins == [(None, 0, 0)] + model.step_outs[:-1]
     assert model.step_outs == [({"a": 0, "b": 2}, 0, 0), ({"a": 1, "b": 3}, 1, 0)]
     assert model.batch_end_ins == model.step_outs
+
+
+def test_no_batch_idx_gradient_accumulation():
+    """Regression test for an issue where excluding the batch_idx from training_step would disable gradient
+    accumulation."""
+
+    class MyModel(BoringModel):
+        last_batch_idx = -1
+
+        def training_step(self, batch):  # no batch_idx
+            return self.step(batch)
+
+        def optimizer_step(self, epoch, batch_idx, *args, **kwargs):
+            assert batch_idx in (1, 3)
+            self.last_batch_idx = batch_idx
+            return super().optimizer_step(epoch, batch_idx, *args, **kwargs)
+
+    trainer = Trainer(fast_dev_run=4, accumulate_grad_batches=2, limit_val_batches=0)
+    model = MyModel()
+    trainer.fit(model)
+    assert model.last_batch_idx == 3
+
+
+def test_resume_mid_epoch_warning(tmp_path):
+    """Test that resuming from a mid-epoch checkpoint raises a warning unless the dataloader is stateful."""
+
+    class NotStatefulIterable:
+        def __init__(self):
+            self.index = 0
+
+        def __iter__(self):
+            for i in range(self.index, len(self)):
+                yield torch.ones(2, 32) * i
+
+        def __len__(self):
+            return 3
+
+    class StatefulIterable(NotStatefulIterable):
+        def state_dict(self):
+            return {"index": self.index}
+
+        def load_state_dict(self, state_dict):
+            self.index = state_dict["index"]
+
+    trainer_kwargs = {
+        "default_root_dir": tmp_path,
+        "accelerator": "cpu",
+        "max_epochs": 1,
+        "enable_model_summary": False,
+        "enable_progress_bar": False,
+        "logger": False,
+    }
+
+    def train_and_resume(dataloader, resume_step, expected_warning):
+        # Initial training
+        checkpoint_dir = tmp_path / "checkpoints"
+        trainer = Trainer(
+            **trainer_kwargs,
+            callbacks=ModelCheckpoint(dirpath=checkpoint_dir, every_n_train_steps=1, save_top_k=-1),
+        )
+        trainer.fit(BoringModel(), dataloader)
+
+        # Resume
+        trainer = Trainer(**trainer_kwargs, enable_checkpointing=False)
+        resume_from = checkpoint_dir / f"epoch=0-step={resume_step}.ckpt"
+        warn_assert = pytest.warns if expected_warning else no_warning_call
+        with warn_assert(PossibleUserWarning, match="resuming from a checkpoint that ended before"):
+            trainer.fit(BoringModel(), dataloader, ckpt_path=resume_from)
+
+    # Resume mid-epoch, no stateful dataloader -> warning
+    train_and_resume(dataloader=NotStatefulIterable(), resume_step=1, expected_warning=True)
+
+    # Resume end-of-epoch, no stateful dataloader -> no warning
+    train_and_resume(dataloader=NotStatefulIterable(), resume_step=3, expected_warning=False)
+
+    # Resume mid-epoch, stateful dataloader -> no warning
+    train_and_resume(dataloader=StatefulIterable(), resume_step=1, expected_warning=False)

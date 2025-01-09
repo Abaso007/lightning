@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import OrderedDict
-from typing import Any, Iterator, List, Optional, Union
+from collections.abc import Iterator
+from typing import Any, Optional, Union
 
 import torch
 from lightning_utilities import WarningCache
@@ -38,6 +39,7 @@ from lightning.pytorch.trainer.states import RunningStage, TrainerFn
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from lightning.pytorch.utilities.data import has_len_all_ranks
 from lightning.pytorch.utilities.exceptions import MisconfigurationException
+from lightning.pytorch.utilities.model_helpers import _ModuleMode
 from lightning.pytorch.utilities.signature_utils import is_param_in_hook_signature
 from lightning.pytorch.utilities.types import _PREDICT_OUTPUT
 
@@ -49,18 +51,19 @@ class _PredictionLoop(_Loop):
         super().__init__(trainer)
         self.inference_mode = inference_mode
         # dataloaders x batches x samples. used by PredictionWriter
-        self.epoch_batch_indices: List[List[List[int]]] = []
-        self.current_batch_indices: List[int] = []  # used by PredictionWriter
+        self.epoch_batch_indices: list[list[list[int]]] = []
+        self.current_batch_indices: list[int] = []  # used by PredictionWriter
         self.batch_progress = _Progress()  # across dataloaders
-        self.max_batches: List[Union[int, float]] = []
+        self.max_batches: list[Union[int, float]] = []
 
         self._warning_cache = WarningCache()
         self._data_source = _DataLoaderSource(None, "predict_dataloader")
         self._combined_loader: Optional[CombinedLoader] = None
         self._data_fetcher: Optional[_DataFetcher] = None
         self._results = None  # for `trainer._results` access
-        self._predictions: List[List[Any]] = []  # dataloaders x batches
+        self._predictions: list[list[Any]] = []  # dataloaders x batches
         self._return_predictions = False
+        self._module_mode = _ModuleMode()
 
     @property
     def return_predictions(self) -> bool:
@@ -80,7 +83,7 @@ class _PredictionLoop(_Loop):
         self._return_predictions = return_supported if return_predictions is None else return_predictions
 
     @property
-    def predictions(self) -> List[Any]:
+    def predictions(self) -> list[Any]:
         """The cached predictions."""
         if self._predictions == []:
             return self._predictions
@@ -191,10 +194,7 @@ class _PredictionLoop(_Loop):
     def on_run_start(self) -> None:
         """Calls ``_on_predict_model_eval``, ``_on_predict_start`` and ``_on_predict_epoch_start`` hooks."""
         self._verify_dataloader_idx_requirement()
-
-        trainer = self.trainer
-        call._call_lightning_module_hook(trainer, "on_predict_model_eval")
-        trainer.lightning_module.zero_grad()
+        self._on_predict_model_eval()
         self._on_predict_start()
         self._on_predict_epoch_start()
 
@@ -202,6 +202,7 @@ class _PredictionLoop(_Loop):
         """Calls ``on_predict_epoch_end`` and ``on_predict_end`` hooks and returns results from all dataloaders."""
         results = self._on_predict_epoch_end()
         self._on_predict_end()
+        self._on_predict_model_train()
         return results
 
     def teardown(self) -> None:
@@ -232,8 +233,9 @@ class _PredictionLoop(_Loop):
 
         self.batch_progress.increment_ready()
 
-        if not using_dataloader_iter:
-            any_on_epoch = self._store_data_for_prediction_writer(batch_idx, dataloader_idx)
+        any_on_epoch = (
+            self._store_data_for_prediction_writer(batch_idx, dataloader_idx) if not using_dataloader_iter else False
+        )
 
         # the `_step` methods don't take a batch_idx when `dataloader_iter` is used, but all other hooks still do,
         # so we need different kwargs
@@ -282,6 +284,7 @@ class _PredictionLoop(_Loop):
 
         Returns:
             the dictionary containing all the keyboard arguments for the predict step
+
         """
         step_kwargs = OrderedDict([("batch", batch), ("batch_idx", batch_idx)])
         if dataloader_idx is not None:
@@ -296,7 +299,7 @@ class _PredictionLoop(_Loop):
             kwargs.pop("batch_idx", None)
         return tuple(kwargs.values())
 
-    def _get_batch_indices(self, dataloader: object) -> List[List[int]]:  # batches x samples
+    def _get_batch_indices(self, dataloader: object) -> list[list[int]]:  # batches x samples
         """Returns a reference to the seen batch indices if the dataloader has a batch sampler wrapped by our
         :class:`~lightning.pytorch.overrides.distributed._IndexBatchSamplerWrapper`."""
         batch_sampler = getattr(dataloader, "batch_sampler", None)
@@ -342,6 +345,13 @@ class _PredictionLoop(_Loop):
         call._call_lightning_module_hook(trainer, "on_predict_start")
         call._call_strategy_hook(trainer, "on_predict_start")
 
+    def _on_predict_model_eval(self) -> None:
+        self._module_mode.capture(self.trainer.lightning_module)
+        call._call_lightning_module_hook(self.trainer, "on_predict_model_eval")
+
+    def _on_predict_model_train(self) -> None:
+        self._module_mode.restore(self.trainer.lightning_module)
+
     def _on_predict_epoch_start(self) -> None:
         """Calls ``on_predict_epoch_start`` hooks."""
         trainer = self.trainer
@@ -353,6 +363,7 @@ class _PredictionLoop(_Loop):
 
         Returns:
             the results for all dataloaders
+
         """
         trainer = self.trainer
         call._call_callback_hooks(trainer, "on_predict_epoch_end")

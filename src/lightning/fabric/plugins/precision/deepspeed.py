@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from contextlib import nullcontext
-from typing import Any, ContextManager, Literal, TYPE_CHECKING
+from contextlib import AbstractContextManager, nullcontext
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from lightning_utilities.core.apply_func import apply_to_collection
 from torch import Tensor
 from torch.nn import Module
-from typing_extensions import get_args
+from typing_extensions import get_args, override
 
 from lightning.fabric.plugins.precision.precision import Precision
 from lightning.fabric.plugins.precision.utils import _convert_fp_tensor, _DtypeContextManager
@@ -61,26 +61,36 @@ class DeepSpeedPrecision(Precision):
         }
         self._desired_dtype = precision_to_type[self.precision]
 
+    @override
     def convert_module(self, module: Module) -> Module:
         if "true" in self.precision:
             return module.to(dtype=self._desired_dtype)
         return module
 
-    def init_context(self) -> ContextManager:
+    @override
+    def tensor_init_context(self) -> AbstractContextManager:
         if "true" not in self.precision:
             return nullcontext()
         return _DtypeContextManager(self._desired_dtype)
 
+    @override
+    def module_init_context(self) -> AbstractContextManager:
+        return self.tensor_init_context()
+
+    @override
     def convert_input(self, data: Any) -> Any:
         return apply_to_collection(data, function=_convert_fp_tensor, dtype=Tensor, dst_type=self._desired_dtype)
 
+    @override
     def convert_output(self, data: Any) -> Any:
         return apply_to_collection(data, function=_convert_fp_tensor, dtype=Tensor, dst_type=torch.get_default_dtype())
 
+    @override
     def backward(self, tensor: Tensor, model: "DeepSpeedEngine", *args: Any, **kwargs: Any) -> None:
         """Performs back-propagation using DeepSpeed's engine."""
         model.backward(tensor, *args, **kwargs)
 
+    @override
     def optimizer_step(
         self,
         optimizer: Steppable,

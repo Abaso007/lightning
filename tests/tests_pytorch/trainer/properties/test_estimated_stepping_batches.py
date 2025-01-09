@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 
 from lightning.pytorch import Trainer
 from lightning.pytorch.demos.boring_classes import BoringModel, RandomIterableDataset
+from lightning.pytorch.strategies import SingleDeviceXLAStrategy
 from tests_pytorch.conftest import mock_cuda_count
 from tests_pytorch.helpers.runif import RunIf
 
@@ -85,9 +86,9 @@ def test_num_stepping_batches_infinite_training():
 
 
 @pytest.mark.parametrize("max_steps", [2, 100])
-def test_num_stepping_batches_with_max_steps(max_steps):
+def test_num_stepping_batches_with_max_steps(max_steps, tmp_path):
     """Test stepping batches with `max_steps`."""
-    trainer = Trainer(max_steps=max_steps)
+    trainer = Trainer(max_steps=max_steps, default_root_dir=tmp_path, logger=False, enable_checkpointing=False)
     model = BoringModel()
     trainer.fit(model)
     assert trainer.estimated_stepping_batches == max_steps
@@ -136,8 +137,10 @@ def test_num_stepping_batches_with_tpu_single():
     trainer = Trainer(accelerator="tpu", devices=1, max_epochs=1)
     model = BoringModel()
     trainer._data_connector.attach_data(model)
+    assert isinstance(trainer.strategy, SingleDeviceXLAStrategy)
     trainer.strategy.connect(model)
-    assert trainer.estimated_stepping_batches == len(model.train_dataloader())
+    expected = len(model.train_dataloader())
+    assert trainer.estimated_stepping_batches == expected
 
 
 class MultiprocessModel(BoringModel):
@@ -149,6 +152,6 @@ class MultiprocessModel(BoringModel):
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
 def test_num_stepping_batches_with_tpu_multi():
     """Test stepping batches with the TPU strategy across multiple devices."""
-    trainer = Trainer(accelerator="tpu", devices="auto", max_epochs=1)
+    trainer = Trainer(accelerator="tpu", devices="auto", max_epochs=1, logger=False, enable_checkpointing=False)
     model = MultiprocessModel()
     trainer.fit(model)

@@ -2,11 +2,12 @@ import contextlib
 import logging
 import time
 from multiprocessing import Process
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 import requests
 import torch
 from lightning_utilities.core.imports import RequirementCache
+from typing_extensions import override
 
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import Callback
@@ -71,6 +72,7 @@ class ServableModuleValidator(Callback):
         self.exit_on_failure = exit_on_failure
         self.resp: Optional[requests.Response] = None
 
+    @override
     @rank_zero_only
     def on_train_start(self, trainer: "pl.Trainer", servable_module: "pl.LightningModule") -> None:
         if isinstance(trainer.strategy, _NOT_SUPPORTED_STRATEGIES):
@@ -133,7 +135,8 @@ class ServableModuleValidator(Callback):
         """Returns whether the model was successfully served."""
         return self.resp.status_code == 200 if self.resp else None
 
-    def state_dict(self) -> Dict[str, Any]:
+    @override
+    def state_dict(self) -> dict[str, Any]:
         return {"successful": self.successful, "optimization": self.optimization, "server": self.server}
 
     @staticmethod
@@ -154,7 +157,7 @@ class ServableModuleValidator(Callback):
             return True
 
         @app.post("/serve")
-        async def serve(payload: dict = Body(...)) -> Dict[str, Any]:
+        async def serve(payload: dict = Body(...)) -> dict[str, Any]:
             body = payload["body"]
 
             for key, deserializer in deserializers.items():

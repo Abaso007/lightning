@@ -11,20 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import io
 import logging
 import os
 import queue
 import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, NamedTuple, Optional, Union
+from typing import Any, Callable, Literal, NamedTuple, Optional, Union
 
-import numpy as np
 import torch
 import torch.backends.cudnn
 import torch.multiprocessing as mp
 from lightning_utilities.core.apply_func import apply_to_collection
 from torch import Tensor
+from typing_extensions import override
 
 import lightning.pytorch as pl
 from lightning.fabric.strategies.launchers.multiprocessing import (
@@ -33,6 +34,7 @@ from lightning.fabric.strategies.launchers.multiprocessing import (
     _disable_module_memory_sharing,
 )
 from lightning.fabric.utilities import move_data_to_device
+from lightning.fabric.utilities.distributed import _set_num_threads_if_needed
 from lightning.fabric.utilities.seed import _collect_rng_states, _set_rng_states
 from lightning.fabric.utilities.types import _PATH
 from lightning.pytorch.accelerators import CPUAccelerator
@@ -78,15 +80,18 @@ class _MultiProcessingLauncher(_Launcher):
                 f"The start method '{self._start_method}' is not available on this platform. Available methods are:"
                 f" {', '.join(mp.get_all_start_methods())}"
             )
-        self.procs: List[mp.Process] = []
+        self.procs: list[mp.Process] = []
+        self._already_fit = False
 
     @property
+    @override
     def is_interactive_compatible(self) -> bool:
         # The start method 'spawn' is not supported in interactive environments
         # The start method 'fork' is the only one supported in Jupyter environments, with constraints around CUDA
         # initialization. For more context, see https://github.com/Lightning-AI/lightning/issues/7550
         return self._start_method == "fork"
 
+    @override
     def launch(self, function: Callable, *args: Any, trainer: Optional["pl.Trainer"] = None, **kwargs: Any) -> Any:
         """Launches processes that run the given function in parallel.
 
@@ -105,6 +110,13 @@ class _MultiProcessingLauncher(_Launcher):
             _check_bad_cuda_fork()
         if self._start_method == "spawn":
             _check_missing_main_guard()
+        if self._already_fit and trainer is not None and trainer.state.fn == TrainerFn.FITTING:
+            # resolving https://github.com/Lightning-AI/lightning/issues/18775 will lift this restriction
+            raise NotImplementedError(
+                "Calling `trainer.fit()` twice on the same Trainer instance using a spawn-based strategy is not"
+                " supported. You can work around this limitation by creating a new Trainer instance and passing the"
+                " `fit(ckpt_path=...)` argument."
+            )
 
         # The default cluster environment in Lightning chooses a random free port number
         # This needs to be done in the main process here before starting processes to ensure each rank will connect
@@ -136,6 +148,7 @@ class _MultiProcessingLauncher(_Launcher):
         if trainer is None:
             return worker_output
 
+        self._already_fit |= trainer.state.fn == TrainerFn.FITTING
         self._recover_results_in_main_process(worker_output, trainer)
         return worker_output.trainer_results
 
@@ -153,6 +166,8 @@ class _MultiProcessingLauncher(_Launcher):
             global_states.restore()
         if self._start_method == "spawn" and isinstance(self._strategy.accelerator, CPUAccelerator):
             args, kwargs = _disable_module_memory_sharing((args, kwargs))
+
+        _set_num_threads_if_needed(num_processes=self._strategy.num_processes)
 
         os.environ["LOCAL_RANK"] = str(process_idx)
         results = function(*args, **kwargs)
@@ -209,9 +224,9 @@ class _MultiProcessingLauncher(_Launcher):
 
         return _WorkerOutput(best_model_path, weights_path, trainer.state, results, extra)
 
-    def get_extra_results(self, trainer: "pl.Trainer") -> Dict[str, Any]:
+    def get_extra_results(self, trainer: "pl.Trainer") -> dict[str, Any]:
         """Gather extra state from the Trainer and return it as a dictionary for sending back to the main process. To
-        avoid issues with memory sharing, we cast the data to numpy.
+        avoid issues with memory sharing, we convert tensors to bytes.
 
         Args:
             trainer: reference to the Trainer.
@@ -221,32 +236,36 @@ class _MultiProcessingLauncher(_Launcher):
             process this output.
 
         """
-        callback_metrics: dict = apply_to_collection(
-            trainer.callback_metrics, Tensor, lambda x: x.cpu().numpy()
-        )  # send as numpy to avoid issues with memory sharing
-        return {"callback_metrics": callback_metrics}
+        callback_metrics = apply_to_collection(trainer.callback_metrics, Tensor, lambda t: t.cpu())
+        buffer = io.BytesIO()
+        torch.save(callback_metrics, buffer)
+        # send tensors as bytes to avoid issues with memory sharing
+        return {"callback_metrics_bytes": buffer.getvalue()}
 
-    def update_main_process_results(self, trainer: "pl.Trainer", extra: Dict[str, Any]) -> None:
-        """Retrieve the :attr:`trainer.callback_metrics` dictionary from the given queue. To preserve consistency,
-        we cast back the data to ``torch.Tensor``.
+    def update_main_process_results(self, trainer: "pl.Trainer", extra: dict[str, Any]) -> None:
+        """Retrieve the :attr:`trainer.callback_metrics` dictionary from the given queue. To preserve consistency, we
+        convert bytes back to ``torch.Tensor``.
 
         Args:
             trainer: reference to the Trainer.
             extra: A dictionary with trainer state that was sent from the worker process and needs to be restored
                 on the current trainer.
+
         """
         # NOTE: `get_extra_results` needs to be called before
-        callback_metrics = extra["callback_metrics"]
-        trainer.callback_metrics.update(apply_to_collection(callback_metrics, np.ndarray, lambda x: torch.tensor(x)))
+        callback_metrics_bytes = extra["callback_metrics_bytes"]
+        callback_metrics = torch.load(io.BytesIO(callback_metrics_bytes), weights_only=True)
+        trainer.callback_metrics.update(callback_metrics)
 
+    @override
     def kill(self, signum: _SIGNUM) -> None:
         for proc in self.procs:
             if proc.is_alive() and proc.pid is not None:
-                log.info(f"pid {os.getpid()} killing {proc.pid} with {signum}")
+                log.debug(f"Process {os.getpid()} is terminating {proc.pid} with {signum}")
                 with suppress(ProcessLookupError):
                     os.kill(proc.pid, signum)
 
-    def __getstate__(self) -> Dict:
+    def __getstate__(self) -> dict:
         state = self.__dict__.copy()
         state["procs"] = []  # SpawnProcess can't be pickled
         return state
@@ -257,7 +276,7 @@ class _WorkerOutput(NamedTuple):
     weights_path: Optional[_PATH]
     trainer_state: TrainerState
     trainer_results: Any
-    extra: Dict[str, Any]
+    extra: dict[str, Any]
 
 
 @dataclass
@@ -282,7 +301,7 @@ class _GlobalStateSnapshot:
     use_deterministic_algorithms: bool
     use_deterministic_algorithms_warn_only: bool
     cudnn_benchmark: bool
-    rng_states: Dict[str, Any]
+    rng_states: dict[str, Any]
 
     @classmethod
     def capture(cls) -> "_GlobalStateSnapshot":

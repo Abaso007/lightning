@@ -15,7 +15,8 @@
 import pytest
 import torch
 
-from lightning.pytorch.plugins import HalfPrecisionPlugin
+from lightning.pytorch import LightningModule, Trainer
+from lightning.pytorch.plugins import HalfPrecision
 
 
 @pytest.mark.parametrize(
@@ -26,7 +27,7 @@ from lightning.pytorch.plugins import HalfPrecisionPlugin
     ],
 )
 def test_selected_dtype(precision, expected_dtype):
-    plugin = HalfPrecisionPlugin(precision=precision)
+    plugin = HalfPrecision(precision=precision)
     assert plugin.precision == precision
     assert plugin._desired_input_dtype == expected_dtype
 
@@ -38,9 +39,9 @@ def test_selected_dtype(precision, expected_dtype):
         ("16-true", torch.half),
     ],
 )
-def test_init_context(precision, expected_dtype):
-    plugin = HalfPrecisionPlugin(precision=precision)
-    with plugin.init_context():
+def test_module_init_context(precision, expected_dtype):
+    plugin = HalfPrecision(precision=precision)
+    with plugin.module_init_context():
         model = torch.nn.Linear(2, 2)
         assert torch.get_default_dtype() == expected_dtype
     assert model.weight.dtype == expected_dtype
@@ -54,7 +55,7 @@ def test_init_context(precision, expected_dtype):
     ],
 )
 def test_forward_context(precision, expected_dtype):
-    precision = HalfPrecisionPlugin(precision=precision)
+    precision = HalfPrecision(precision=precision)
     assert torch.get_default_dtype() == torch.float32
     with precision.forward_context():
         assert torch.get_default_dtype() == expected_dtype
@@ -69,8 +70,30 @@ def test_forward_context(precision, expected_dtype):
     ],
 )
 def test_convert_module(precision, expected_dtype):
-    precision = HalfPrecisionPlugin(precision=precision)
+    precision = HalfPrecision(precision=precision)
     module = torch.nn.Linear(2, 2)
     assert module.weight.dtype == module.bias.dtype == torch.float32
     module = precision.convert_module(module)
     assert module.weight.dtype == module.bias.dtype == expected_dtype
+
+
+@pytest.mark.parametrize(
+    ("precision", "expected_dtype"),
+    [
+        ("bf16-true", torch.bfloat16),
+        ("16-true", torch.half),
+    ],
+)
+def test_configure_model(precision, expected_dtype):
+    class MyModel(LightningModule):
+        def configure_model(self):
+            self.l = torch.nn.Linear(1, 3)
+            # this is under the `module_init_context`
+            assert self.l.weight.dtype == expected_dtype
+
+        def test_step(self, *_): ...
+
+    model = MyModel()
+    trainer = Trainer(barebones=True, precision=precision)
+    trainer.test(model, [0])
+    assert model.l.weight.dtype == expected_dtype

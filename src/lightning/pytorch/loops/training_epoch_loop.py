@@ -13,9 +13,14 @@
 # limitations under the License.
 import math
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Optional, Union
+
+from typing_extensions import override
 
 import lightning.pytorch as pl
+from lightning.fabric.utilities.types import _Stateful
+from lightning.fabric.utilities.warnings import PossibleUserWarning
 from lightning.pytorch import loops  # import as loops to avoid circular imports
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 from lightning.pytorch.loops.optimization import _AutomaticOptimization, _ManualOptimization
@@ -27,16 +32,22 @@ from lightning.pytorch.trainer import call
 from lightning.pytorch.trainer.connectors.logger_connector.result import _ResultCollection
 from lightning.pytorch.trainer.states import RunningStage, TrainerFn
 from lightning.pytorch.utilities.exceptions import MisconfigurationException, SIGTERMException
-from lightning.pytorch.utilities.rank_zero import rank_zero_warn, WarningCache
+from lightning.pytorch.utilities.rank_zero import WarningCache, rank_zero_warn
 from lightning.pytorch.utilities.signature_utils import is_param_in_hook_signature
 
 _BATCH_OUTPUTS_TYPE = Optional[Union[_OPTIMIZER_LOOP_OUTPUTS_TYPE, _MANUAL_LOOP_OUTPUTS_TYPE]]
 
 
+@dataclass
+class RestartStage:
+    NONE = "none"
+    RESTARTED_ON_TRAIN_BATCH_END = "restarted_on_train_batch_end"
+    RESTARTED_ON_LAST = "restarted_on_last"
+
+
 class _TrainingEpochLoop(loops._Loop):
-    """
-    Iterates over all batches in the dataloader (one epoch) that the user returns in their
-    :meth:`~lightning.pytorch.core.module.LightningModule.train_dataloader` method.
+    """Iterates over all batches in the dataloader (one epoch) that the user returns in their
+    :meth:`~lightning.pytorch.core.LightningModule.train_dataloader` method.
 
     Its main responsibilities are calling the ``*_epoch_{start,end}`` hooks, accumulating outputs if the user request
     them in one of these hooks, and running validation at the requested interval.
@@ -53,6 +64,7 @@ class _TrainingEpochLoop(loops._Loop):
     Args:
         min_steps: The minimum number of steps (batches) to process
         max_steps: The maximum number of steps (batches) to process
+
     """
 
     def __init__(self, trainer: "pl.Trainer", min_steps: Optional[int] = None, max_steps: int = -1) -> None:
@@ -77,6 +89,8 @@ class _TrainingEpochLoop(loops._Loop):
         self._results = _ResultCollection(training=True)
         self._warning_cache = WarningCache()
         self._batches_that_stepped: int = 0
+        self._restart_stage = RestartStage.NONE
+        self._skip_next_val = False
 
     @property
     def total_batch_idx(self) -> int:
@@ -135,13 +149,63 @@ class _TrainingEpochLoop(loops._Loop):
             try:
                 self.advance(data_fetcher)
                 self.on_advance_end(data_fetcher)
-                self._restarting = False
             except StopIteration:
                 break
-        self._restarting = False
+            finally:
+                self.on_iteration_done()
+
+    @property
+    def restarted_on_train_batch_end(self) -> bool:
+        return self._restart_stage == RestartStage.RESTARTED_ON_TRAIN_BATCH_END
+
+    @property
+    def restarted_on_last(self) -> bool:
+        return self._restart_stage == RestartStage.RESTARTED_ON_LAST
+
+    def update_restart_stage(self) -> None:
+        if (
+            self.restarting
+            and self.batch_progress.total.started == self.batch_progress.total.ready
+            and self.batch_progress.total.processed == self.batch_progress.total.started
+            and self.batch_progress.total.completed == self.batch_progress.total.processed - 1
+        ):
+            self._restart_stage = RestartStage.RESTARTED_ON_TRAIN_BATCH_END
+        elif (
+            self.restarting
+            and self.batch_progress.total.started == self.batch_progress.total.ready
+            and self.batch_progress.total.processed == self.batch_progress.total.started
+            and self.batch_progress.total.completed == self.batch_progress.total.processed
+        ):
+            self._restart_stage = RestartStage.RESTARTED_ON_LAST
+        else:
+            self._restart_stage = RestartStage.NONE
+
+        self.val_loop.update_restart_stage()
+
+    def reset_restart_stage(self) -> None:
+        self._restart_stage = RestartStage.NONE
 
     def reset(self) -> None:
         """Resets the internal state of the loop for a new run."""
+        if (
+            self.restarting
+            and not self._should_accumulate()
+            and (self.restarted_on_train_batch_end or not self.restarted_on_last)
+        ):
+            # batches_that_stepped is never set prior to saving a checkpoint, even when saving
+            # happens on_validation_end
+            # we could set it in the checkpoint but we prefer to keep checkpoints backward compatible
+            self._batches_that_stepped += 1
+
+        if self.restarted_on_train_batch_end:
+            self.batch_progress.increment_completed()
+            # handle situation in which save happened on_train_batch_end and epoch is at end
+            if self.batch_progress.current.completed >= self.trainer.num_training_batches:
+                self.batch_progress.reset_on_run()
+                self.scheduler_progress.reset_on_run()
+                self.automatic_optimization.optim_progress.reset_on_run()
+                self.val_loop.batch_progress.total.reset()
+
         if self.restarting:
             self.batch_progress.reset_on_restart()
             self.scheduler_progress.reset_on_restart()
@@ -150,10 +214,16 @@ class _TrainingEpochLoop(loops._Loop):
             trainer = self.trainer
             if trainer.num_training_batches != float("inf"):
                 expected_steps = math.ceil(trainer.num_training_batches / trainer.accumulate_grad_batches)
-                if self.global_step % expected_steps != 0:
+                loader = trainer.fit_loop._combined_loader
+                assert loader is not None
+                is_resumable_loader = all(isinstance(loader, _Stateful) for loader in loader.flattened)
+                if self.global_step % expected_steps != 0 and not is_resumable_loader:
                     rank_zero_warn(
-                        "You're resuming from a checkpoint that ended before the epoch ended. This can cause unreliable"
-                        " results if further training is done. Consider using an end-of-epoch checkpoint"
+                        "You're resuming from a checkpoint that ended before the epoch ended and your dataloader is"
+                        " not resumable. This can cause unreliable results if further training is done."
+                        " Consider using an end-of-epoch checkpoint or make your dataloader resumable by implementing"
+                        " the `state_dict` / `load_state_dict` interface.",
+                        category=PossibleUserWarning,
                     )
         else:
             self.batch_progress.reset_on_run()
@@ -187,8 +257,18 @@ class _TrainingEpochLoop(loops._Loop):
 
         """
         if self.restarting and self._should_check_val_fx(data_fetcher):
-            # skip training and run validation in `on_advance_end`
-            return
+            if self.val_loop.restarted_mid_evaluation:
+                # Go back and finish running validation
+                return
+
+            if self.restarted_on_last:
+                # Avoid running validation again if we saved on last
+                self._skip_next_val = True
+                return
+
+            # fast forward progress counters to end of validation
+            self.val_loop.increment_progress_to_evaluation_end()
+
         # we are going to train first so the val loop does not need to restart
         self.val_loop.restarting = False
 
@@ -237,7 +317,7 @@ class _TrainingEpochLoop(loops._Loop):
             with trainer.profiler.profile("run_training_batch"):
                 if trainer.lightning_module.automatic_optimization:
                     # in automatic optimization, there can only be one optimizer
-                    batch_output = self.automatic_optimization.run(trainer.optimizers[0], kwargs)
+                    batch_output = self.automatic_optimization.run(trainer.optimizers[0], batch_idx, kwargs)
                 else:
                     batch_output = self.manual_optimization.run(kwargs)
 
@@ -272,11 +352,21 @@ class _TrainingEpochLoop(loops._Loop):
         # VALIDATE IF NEEDED
         # -----------------------------------------
         should_check_val = self._should_check_val_fx(data_fetcher)
+
+        if self._skip_next_val:
+            should_check_val = False
+            self._skip_next_val = False
+
         if should_check_val:
             # this needs to be set so the correct `trainer._active_loop` is picked
             self.trainer.validating = True
             # save and reset this state in case validation runs inside training loop (val_check_interval<1.0)
             first_loop_iter = self.trainer._logger_connector._first_loop_iter
+
+            if not self._should_accumulate():
+                # clear gradients to not leave any unused memory during validation
+                call._call_lightning_module_hook(self.trainer, "on_validation_model_zero_grad")
+
             self.val_loop.run()
             self.trainer.training = True
             self.trainer._logger_connector._first_loop_iter = first_loop_iter
@@ -299,12 +389,14 @@ class _TrainingEpochLoop(loops._Loop):
         self._results.cpu()
         self.val_loop.teardown()
 
-    def on_save_checkpoint(self) -> Dict:
+    @override
+    def on_save_checkpoint(self) -> dict:
         state_dict = super().on_save_checkpoint()
         state_dict["_batches_that_stepped"] = self._batches_that_stepped
         return state_dict
 
-    def on_load_checkpoint(self, state_dict: Dict) -> None:
+    @override
+    def on_load_checkpoint(self, state_dict: dict) -> None:
         self._batches_that_stepped = state_dict.get("_batches_that_stepped", 0)
 
     def _accumulated_batches_reached(self) -> bool:

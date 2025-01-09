@@ -57,7 +57,7 @@ Paste the following code block into a notebook cell:
             self.decoder = decoder
 
         def training_step(self, batch, batch_idx):
-            x, y = batch
+            x, _ = batch
             x = x.view(x.size(0), -1)
             z = self.encoder(x)
             x_hat = self.decoder(z)
@@ -121,4 +121,4 @@ If you define/load your data in the main process before calling ``trainer.fit()`
     trainer = L.Trainer(accelerator="cuda", devices=2)
     trainer.fit(model, train_dataloader)
 
-The best practice is to move your data loading code inside the ``*_dataloader()`` hooks in the :class:`~lightning.pytorch.core.module.LightningModule` or :class:`~lightning.pytorch.core.datamodule.LightningDataModule` as shown in the :ref:`example above <jupyter_notebook_example>`.
+The best practice is to move your data loading code inside the ``*_dataloader()`` hooks in the :class:`~lightning.pytorch.core.LightningModule` or :class:`~lightning.pytorch.core.datamodule.LightningDataModule` as shown in the :ref:`example above <jupyter_notebook_example>`.

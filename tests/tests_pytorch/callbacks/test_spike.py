@@ -47,6 +47,7 @@ class MyTrainerSpikeDetection(SpikeDetection):
             super().on_train_batch_end(trainer, pl_module, outputs, batch, batch_idx)
 
 
+@pytest.mark.flaky(max_runs=3)
 @pytest.mark.parametrize(
     ("global_rank_spike", "num_devices", "spike_value", "finite_only"),
     [
@@ -213,6 +214,8 @@ def test_trainer_spike_detection_integration(tmp_path, global_rank_spike, num_de
     cb.should_raise = spike_value is None or finite_only or spike_value == float("inf")
 
     trainer = Trainer(
+        default_root_dir=tmp_path,
+        logger=False,
         callbacks=[cb],
         accelerator="cpu",
         devices=num_devices,

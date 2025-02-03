@@ -11,19 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, cast, ContextManager, Dict, Literal, Optional, TYPE_CHECKING
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import torch
 from lightning_utilities import apply_to_collection
 from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
-from typing_extensions import get_args
+from typing_extensions import get_args, override
 
 from lightning.fabric.plugins.precision.amp import _optimizer_handles_unscaling
 from lightning.fabric.plugins.precision.precision import Precision
 from lightning.fabric.plugins.precision.utils import _convert_fp_tensor, _DtypeContextManager
-from lightning.fabric.utilities.imports import _TORCH_GREATER_EQUAL_1_12, _TORCH_GREATER_EQUAL_2_0
 from lightning.fabric.utilities.types import Optimizable
 
 if TYPE_CHECKING:
@@ -50,9 +50,6 @@ class FSDPPrecision(Precision):
     """
 
     def __init__(self, precision: _PRECISION_INPUT, scaler: Optional["ShardedGradScaler"] = None) -> None:
-        if not _TORCH_GREATER_EQUAL_1_12:
-            raise NotImplementedError("`FSDPPrecision` is supported from PyTorch v1.12.0 onwards.")
-
         supported_precision = get_args(_PRECISION_INPUT)
         if precision not in supported_precision:
             raise ValueError(
@@ -69,33 +66,36 @@ class FSDPPrecision(Precision):
         self.precision = precision
 
         precision_to_type = {
-            "bf16-mixed": torch.bfloat16,
-            "16-mixed": torch.float16,
+            "bf16-mixed": torch.float32,
+            "16-mixed": torch.float32,
             "bf16-true": torch.bfloat16,
             "16-true": torch.float16,
             "32-true": torch.float32,
         }
         self._desired_input_dtype = precision_to_type[self.precision]
 
+    @override
+    def convert_module(self, module: Module) -> Module:
+        if "true" in self.precision:
+            return module.to(dtype=self._desired_input_dtype)
+        return module
+
     @property
     def mixed_precision_config(self) -> "TorchMixedPrecision":
         from torch.distributed.fsdp.fully_sharded_data_parallel import MixedPrecision as TorchMixedPrecision
 
-        # With PyTorch < 2.0, FSDP uses the noneness of `param_dtype` as a proxy for the `_uses_param_mixed_precision`
-        # property. In order to avoid FSDP assertion failures, we therefore avoid setting `param_dtype` to
-        # `torch.float32` here with PyTorch < 2.0.
         if self.precision == "16-mixed":
-            param_dtype = None if not _TORCH_GREATER_EQUAL_2_0 else torch.float32
+            param_dtype = torch.float32
             reduce_dtype = buffer_dtype = torch.float16
         elif self.precision == "bf16-mixed":
-            param_dtype = None if not _TORCH_GREATER_EQUAL_2_0 else torch.float32
+            param_dtype = torch.float32
             reduce_dtype = buffer_dtype = torch.bfloat16
         elif self.precision == "16-true":
             param_dtype = reduce_dtype = buffer_dtype = torch.float16
         elif self.precision == "bf16-true":
             param_dtype = reduce_dtype = buffer_dtype = torch.bfloat16
         elif self.precision == "32-true":
-            param_dtype = None if not _TORCH_GREATER_EQUAL_2_0 else torch.float32
+            param_dtype = torch.float32
             reduce_dtype = buffer_dtype = torch.float32
         else:
             raise ValueError(f"Was unable to infer precision type, received {self.precision!r}.")
@@ -106,25 +106,35 @@ class FSDPPrecision(Precision):
             buffer_dtype=buffer_dtype,
         )
 
-    def init_context(self) -> ContextManager:
-        return _DtypeContextManager(self.mixed_precision_config.param_dtype or torch.float32)
-
-    def forward_context(self) -> ContextManager:
-        if "mixed" in self.precision:
-            return self._autocast_context_manager()
+    @override
+    def tensor_init_context(self) -> AbstractContextManager:
         return _DtypeContextManager(self._desired_input_dtype)
 
+    @override
+    def module_init_context(self) -> AbstractContextManager:
+        return _DtypeContextManager(self.mixed_precision_config.param_dtype or torch.float32)
+
+    @override
+    def forward_context(self) -> AbstractContextManager:
+        if "mixed" in self.precision:
+            return torch.autocast("cuda", dtype=(torch.bfloat16 if self.precision == "bf16-mixed" else torch.float16))
+        return self.tensor_init_context()
+
+    @override
     def convert_input(self, data: Any) -> Any:
         return apply_to_collection(data, function=_convert_fp_tensor, dtype=Tensor, dst_type=self._desired_input_dtype)
 
+    @override
     def convert_output(self, data: Any) -> Any:
         return apply_to_collection(data, function=_convert_fp_tensor, dtype=Tensor, dst_type=torch.get_default_dtype())
 
+    @override
     def backward(self, tensor: Tensor, model: Optional[Module], *args: Any, **kwargs: Any) -> None:
         if self.scaler is not None:
-            tensor = cast(Tensor, self.scaler.scale(tensor))
+            tensor = self.scaler.scale(tensor)
         super().backward(tensor, model, *args, **kwargs)
 
+    @override
     def optimizer_step(
         self,
         optimizer: Optimizable,
@@ -138,23 +148,21 @@ class FSDPPrecision(Precision):
         self.scaler.update()
         return step_output
 
+    @override
     def unscale_gradients(self, optimizer: Optimizer) -> None:
         scaler = self.scaler
         if scaler is not None:
             if _optimizer_handles_unscaling(optimizer):
                 raise NotImplementedError("Gradient clipping is not implemented for optimizers handling the unscaling.")
-            scaler.unscale_(optimizer)  # type: ignore[arg-type]  # ShardedGradScaler has wrong type annotation
+            scaler.unscale_(optimizer)
 
-    def state_dict(self) -> Dict[str, Any]:
+    @override
+    def state_dict(self) -> dict[str, Any]:
         if self.scaler is not None:
             return self.scaler.state_dict()
         return {}
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+    @override
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         if self.scaler is not None:
             self.scaler.load_state_dict(state_dict)
-
-    def _autocast_context_manager(self) -> torch.autocast:
-        # the dtype could be automatically inferred but we need to manually set it due to a bug upstream
-        # https://github.com/pytorch/pytorch/issues/67233
-        return torch.autocast("cuda", dtype=self._desired_input_dtype)

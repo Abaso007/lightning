@@ -15,7 +15,7 @@ import collections
 import os
 from copy import deepcopy
 from unittest import mock
-from unittest.mock import call, MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import torch
@@ -27,7 +27,7 @@ from lightning.fabric.utilities.imports import _IS_WINDOWS
 from lightning.pytorch import Trainer
 from lightning.pytorch.accelerators import CPUAccelerator, XLAAccelerator
 from lightning.pytorch.demos.boring_classes import BoringModel, RandomDataset
-from lightning.pytorch.plugins import PrecisionPlugin, XLACheckpointIO, XLAPrecisionPlugin
+from lightning.pytorch.plugins import Precision, XLACheckpointIO, XLAPrecision
 from lightning.pytorch.strategies import DDPStrategy, XLAStrategy
 from lightning.pytorch.utilities import find_shared_parameters
 from tests_pytorch.helpers.runif import RunIf
@@ -52,11 +52,11 @@ class WeightSharingModule(BoringModel):
 
 @RunIf(tpu=True, standalone=True)
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
-def test_resume_training_on_cpu(tmpdir):
+def test_resume_training_on_cpu(tmp_path):
     """Checks if training can be resumed from a saved checkpoint on CPU."""
     # Train a model on TPU
     model = BoringModel()
-    trainer = Trainer(max_epochs=1, accelerator="tpu", devices="auto")
+    trainer = Trainer(max_epochs=1, accelerator="tpu", devices="auto", default_root_dir=tmp_path)
     trainer.fit(model)
 
     if trainer.world_size != trainer.num_devices:
@@ -67,21 +67,21 @@ def test_resume_training_on_cpu(tmpdir):
     model_path = trainer.checkpoint_callback.best_model_path
 
     # Verify saved Tensors are on CPU
-    ckpt = torch.load(model_path)
+    ckpt = torch.load(model_path, weights_only=True)
     weight_tensor = list(ckpt["state_dict"].values())[0]
     assert weight_tensor.device == torch.device("cpu")
 
     # Verify that training is resumed on CPU
-    trainer = Trainer(max_epochs=1, default_root_dir=tmpdir)
+    trainer = Trainer(max_epochs=1, default_root_dir=tmp_path)
     trainer.fit(model, ckpt_path=model_path)
 
 
 @RunIf(tpu=True)
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
-def test_if_test_works_after_train(tmpdir):
+def test_if_test_works_after_train(tmp_path):
     """Ensure that .test() works after .fit()"""
     model = BoringModel()
-    trainer = Trainer(max_epochs=1, accelerator="tpu", devices="auto", default_root_dir=tmpdir, fast_dev_run=True)
+    trainer = Trainer(max_epochs=1, accelerator="tpu", devices="auto", default_root_dir=tmp_path, fast_dev_run=True)
     trainer.fit(model)
     out = trainer.test(model)
     assert len(out) == 1
@@ -159,13 +159,13 @@ class ManualOptimizationModel(BoringModel):
 
 @RunIf(tpu=True)
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
-def test_manual_optimization_tpus(tmpdir):
+def test_manual_optimization_tpus(tmp_path):
     model = ManualOptimizationModel()
     model_copy = deepcopy(model)
 
     trainer = Trainer(
         max_epochs=1,
-        default_root_dir=tmpdir,
+        default_root_dir=tmp_path,
         limit_train_batches=3,
         limit_test_batches=0,
         limit_val_batches=0,
@@ -198,13 +198,13 @@ def test_strategy_choice_tpu_strategy():
 
 @RunIf(tpu=True)
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
-def test_auto_parameters_tying_tpus(tmpdir):
+def test_auto_parameters_tying_tpus(tmp_path):
     model = WeightSharingModule()
     shared_params = find_shared_parameters(model)
 
     assert shared_params[0] == ["layer_1.weight", "layer_3.weight"]
 
-    trainer = Trainer(default_root_dir=tmpdir, limit_train_batches=3, accelerator="tpu", devices="auto", max_epochs=1)
+    trainer = Trainer(default_root_dir=tmp_path, limit_train_batches=3, accelerator="tpu", devices="auto", max_epochs=1)
     trainer.fit(model)
 
     assert torch.equal(model.layer_1.weight, model.layer_3.weight)
@@ -236,32 +236,25 @@ class NestedModule(BoringModel):
 
 @RunIf(tpu=True)
 @mock.patch.dict(os.environ, os.environ.copy(), clear=True)
-def test_auto_parameters_tying_tpus_nested_module(tmpdir):
+def test_auto_parameters_tying_tpus_nested_module(tmp_path):
     model = NestedModule()
-    trainer = Trainer(default_root_dir=tmpdir, limit_train_batches=3, accelerator="tpu", devices="auto", max_epochs=1)
+    trainer = Trainer(default_root_dir=tmp_path, limit_train_batches=3, accelerator="tpu", devices="auto", max_epochs=1)
     trainer.fit(model)
 
     assert torch.all(torch.eq(model.net_a.layer.weight, model.net_b.layer.weight))
 
 
 def test_tpu_invalid_raises(tpu_available, mps_count_0):
-    strategy = XLAStrategy(accelerator=XLAAccelerator(), precision_plugin=PrecisionPlugin())
-    with pytest.raises(ValueError, match="XLAAccelerator` can only be used with a `XLAPrecisionPlugin"):
-        Trainer(strategy=strategy, devices=8)
-
-    strategy = DDPStrategy(accelerator=XLAAccelerator(), precision_plugin=XLAPrecisionPlugin())
+    strategy = DDPStrategy(accelerator=XLAAccelerator(), precision_plugin=XLAPrecision())
     with pytest.raises(ValueError, match="XLAAccelerator` can only be used with a `SingleDeviceXLAStrategy`"):
         Trainer(strategy=strategy, devices=8)
 
-
-def test_tpu_invalid_raises_set_precision_with_strategy(tpu_available, mps_count_0):
     accelerator = XLAAccelerator()
-    strategy = XLAStrategy(accelerator=accelerator, precision_plugin=PrecisionPlugin())
-    with pytest.raises(ValueError, match="`XLAAccelerator` can only be used with a `XLAPrecisionPlugin`"):
-        Trainer(strategy=strategy, devices=8)
+    with pytest.raises(TypeError, match="can only work with the `XLAPrecision` plugin"):
+        XLAStrategy(accelerator=accelerator, precision_plugin=Precision())
 
     accelerator = XLAAccelerator()
-    strategy = DDPStrategy(accelerator=accelerator, precision_plugin=XLAPrecisionPlugin())
+    strategy = DDPStrategy(accelerator=accelerator, precision_plugin=XLAPrecision())
     with pytest.raises(
         ValueError, match="The `XLAAccelerator` can only be used with a `SingleDeviceXLAStrategy` or `XLAStrategy"
     ):
@@ -319,10 +312,9 @@ def test_warning_if_tpus_not_used(tpu_available):
         ("2,", [2]),
     ],
 )
-@pytest.mark.parametrize("runtime", ["xrt", "pjrt"])
 @RunIf(min_python="3.9")  # mocking issue
-def test_trainer_config_device_ids(devices, expected_device_ids, runtime, tpu_available, monkeypatch):
-    monkeypatch.setattr(lightning.fabric.accelerators.xla, "_using_pjrt", lambda: runtime == "pjrt")
+def test_trainer_config_device_ids(devices, expected_device_ids, tpu_available, monkeypatch):
+    monkeypatch.setattr(lightning.fabric.accelerators.xla, "_using_pjrt", lambda: True)
 
     mock = DeviceMock()
     monkeypatch.setattr(torch, "device", mock)
@@ -331,7 +323,6 @@ def test_trainer_config_device_ids(devices, expected_device_ids, runtime, tpu_av
         monkeypatch.setattr(torch.multiprocessing, "get_all_start_methods", lambda: ["fork", "spawn"])
 
     trainer = Trainer(accelerator="tpu", devices=devices)
-    device_offset = int(runtime == "xrt")
-    assert mock.mock_calls == [call("xla", i + device_offset) for i in expected_device_ids]
+    assert mock.mock_calls == [call("xla", i) for i in expected_device_ids]
     assert len(trainer.device_ids) == len(expected_device_ids)
     assert trainer.num_devices == len(expected_device_ids)

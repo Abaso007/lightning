@@ -13,11 +13,12 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import torch
 from lightning_utilities.core.apply_func import apply_to_collection
 from lightning_utilities.core.imports import RequirementCache
+from typing_extensions import override
 
 from lightning.fabric.accelerators.xla import _XLA_AVAILABLE
 from lightning.fabric.plugins.io.torch_io import TorchCheckpointIO
@@ -39,7 +40,8 @@ class XLACheckpointIO(TorchCheckpointIO):
             raise ModuleNotFoundError(str(_XLA_AVAILABLE))
         super().__init__(*args, **kwargs)
 
-    def save_checkpoint(self, checkpoint: Dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
+    @override
+    def save_checkpoint(self, checkpoint: dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
         """Save model/training states as a checkpoint file through state-dump and file-write.
 
         Args:

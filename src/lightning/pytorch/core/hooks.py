@@ -13,7 +13,7 @@
 # limitations under the License.
 """Various hooks to be used in the Lightning code."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import torch
 from torch import Tensor
@@ -84,6 +84,10 @@ class ModelHooks:
             batch: The batched data as it is returned by the training DataLoader.
             batch_idx: the index of the batch
 
+        Note:
+            The value ``outputs["loss"]`` here will be the normalized value w.r.t ``accumulate_grad_batches`` of the
+            loss returned from ``training_step``.
+
         """
 
     def on_validation_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
@@ -151,24 +155,57 @@ class ModelHooks:
 
         """
 
+    def on_validation_model_zero_grad(self) -> None:
+        """Called by the training loop to release gradients before entering the validation loop."""
+        self.zero_grad()
+
     def on_validation_model_eval(self) -> None:
-        """Sets the model to eval during the val loop."""
+        """Called when the validation loop starts.
+
+        The validation loop by default calls ``.eval()`` on the LightningModule before it starts. Override this hook
+        to change the behavior. See also :meth:`~lightning.pytorch.core.hooks.ModelHooks.on_validation_model_train`.
+
+        """
         self.trainer.model.eval()
 
     def on_validation_model_train(self) -> None:
-        """Sets the model to train during the val loop."""
-        self.trainer.model.train()
+        """Called when the validation loop ends.
 
-    def on_test_model_train(self) -> None:
-        """Sets the model to train during the test loop."""
+        The validation loop by default restores the `training` mode of the LightningModule to what it was before
+        starting validation. Override this hook to change the behavior. See also
+        :meth:`~lightning.pytorch.core.hooks.ModelHooks.on_validation_model_eval`.
+
+        """
+        # The loop won't call this hook unless it is overridden. The line below is here in case the user calls super().
         self.trainer.model.train()
 
     def on_test_model_eval(self) -> None:
-        """Sets the model to eval during the test loop."""
+        """Called when the test loop starts.
+
+        The test loop by default calls ``.eval()`` on the LightningModule before it starts. Override this hook
+        to change the behavior. See also :meth:`~lightning.pytorch.core.hooks.ModelHooks.on_test_model_train`.
+
+        """
         self.trainer.model.eval()
 
+    def on_test_model_train(self) -> None:
+        """Called when the test loop ends.
+
+        The test loop by default restores the `training` mode of the LightningModule to what it was before
+        starting testing. Override this hook to change the behavior. See also
+        :meth:`~lightning.pytorch.core.hooks.ModelHooks.on_test_model_eval`.
+
+        """
+        # The loop won't call this hook unless it is overridden. The line below is here in case the user calls super().
+        self.trainer.model.train()
+
     def on_predict_model_eval(self) -> None:
-        """Sets the model to eval during the predict loop."""
+        """Called when the predict loop starts.
+
+        The predict loop by default calls ``.eval()`` on the LightningModule before it starts. Override this hook
+        to change the behavior.
+
+        """
         self.trainer.model.eval()
 
     def on_train_epoch_start(self) -> None:
@@ -237,6 +274,7 @@ class ModelHooks:
 
         Args:
             optimizer: The optimizer for which grads should be zeroed.
+
         """
 
     def on_before_backward(self, loss: Tensor) -> None:
@@ -244,6 +282,7 @@ class ModelHooks:
 
         Args:
             loss: Loss divided by number of batches for gradient accumulation and scaled if using AMP.
+
         """
         pass
 
@@ -253,13 +292,14 @@ class ModelHooks:
         Note:
             If using native AMP, the gradients will not be unscaled at this point.
             Use the ``on_before_optimizer_step`` if you need the unscaled gradients.
+
         """
 
     def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
         """Called before ``optimizer.step()``.
 
         If using gradient accumulation, the hook is called once the gradients have been accumulated.
-        See: :paramref:`~lightning.pytorch.trainer.Trainer.accumulate_grad_batches`.
+        See: :paramref:`~lightning.pytorch.trainer.trainer.Trainer.accumulate_grad_batches`.
 
         If using AMP, the loss will be unscaled before calling this hook.
         See these `docs <https://pytorch.org/docs/stable/notes/amp_examples.html#working-with-unscaled-gradients>`__
@@ -279,6 +319,7 @@ class ModelHooks:
                         self.logger.experiment.add_histogram(
                             tag=k, values=v.grad, global_step=self.trainer.global_step
                         )
+
         """
 
     def configure_sharded_model(self) -> None:
@@ -297,7 +338,8 @@ class ModelHooks:
         :meth:`~lightning.pytorch.trainer.trainer.Trainer.init_module` context manager.
 
         This hook is called during each of fit/val/test/predict stages in the same process, so ensure that
-        implementation of this hook is idempotent.
+        implementation of this hook is **idempotent**, i.e., after the first time the hook is called, subsequent calls
+        to it should be a no-op.
 
         """
 
@@ -416,7 +458,7 @@ class DataHooks:
         For more information about multiple dataloaders, see this :ref:`section <multiple-dataloaders>`.
 
         The dataloader you return will not be reloaded unless you set
-        :paramref:`~lightning.pytorch.trainer.Trainer.reload_dataloaders_every_n_epochs` to
+        :paramref:`~lightning.pytorch.trainer.trainer.Trainer.reload_dataloaders_every_n_epochs` to
         a positive integer.
 
         For data processing use the following pattern:
@@ -475,7 +517,7 @@ class DataHooks:
         For more information about multiple dataloaders, see this :ref:`section <multiple-dataloaders>`.
 
         The dataloader you return will not be reloaded unless you set
-        :paramref:`~lightning.pytorch.trainer.Trainer.reload_dataloaders_every_n_epochs` to
+        :paramref:`~lightning.pytorch.trainer.trainer.Trainer.reload_dataloaders_every_n_epochs` to
         a positive integer.
 
         It's recommended that all data downloads and preparation happen in :meth:`prepare_data`.
@@ -561,10 +603,6 @@ class DataHooks:
                     batch = super().transfer_batch_to_device(batch, device, dataloader_idx)
                 return batch
 
-        Raises:
-            MisconfigurationException:
-                If using IPUs, ``Trainer(accelerator='ipu')``.
-
         See Also:
             - :meth:`move_data_to_device`
             - :meth:`apply_to_collection`
@@ -621,10 +659,6 @@ class DataHooks:
                 batch['x'] = gpu_transforms(batch['x'])
                 return batch
 
-        Raises:
-            MisconfigurationException:
-                If using IPUs, ``Trainer(accelerator='ipu')``.
-
         See Also:
             - :meth:`on_before_batch_transfer`
             - :meth:`transfer_batch_to_device`
@@ -636,7 +670,7 @@ class DataHooks:
 class CheckpointHooks:
     """Hooks to be used with Checkpointing."""
 
-    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
         r"""Called by Lightning to restore your model. If you saved something with :meth:`on_save_checkpoint` this is
         your chance to restore this.
 
@@ -655,7 +689,7 @@ class CheckpointHooks:
 
         """
 
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
         r"""Called by Lightning when saving a checkpoint to give you a chance to store anything else you might want to
         save.
 

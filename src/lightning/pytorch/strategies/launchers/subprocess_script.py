@@ -14,9 +14,10 @@
 import logging
 import os
 import subprocess
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
 from lightning_utilities.core.imports import RequirementCache
+from typing_extensions import override
 
 import lightning.pytorch as pl
 from lightning.fabric.plugins import ClusterEnvironment
@@ -25,6 +26,7 @@ from lightning.fabric.strategies.launchers.subprocess_script import (
     _hydra_subprocess_cmd,
     _launch_process_observer,
 )
+from lightning.fabric.utilities.distributed import _set_num_threads_if_needed
 from lightning.pytorch.strategies.launchers.launcher import _Launcher
 from lightning.pytorch.trainer.connectors.signal_connector import _SIGNUM
 
@@ -75,12 +77,14 @@ class _SubprocessScriptLauncher(_Launcher):
         self.cluster_environment = cluster_environment
         self.num_processes = num_processes
         self.num_nodes = num_nodes
-        self.procs: List[subprocess.Popen] = []  # launched child subprocesses, does not include the launcher
+        self.procs: list[subprocess.Popen] = []  # launched child subprocesses, does not include the launcher
 
     @property
+    @override
     def is_interactive_compatible(self) -> bool:
         return False
 
+    @override
     def launch(self, function: Callable, *args: Any, trainer: Optional["pl.Trainer"] = None, **kwargs: Any) -> Any:
         """Creates new processes, then calls the given function.
 
@@ -96,11 +100,14 @@ class _SubprocessScriptLauncher(_Launcher):
         if not self.cluster_environment.creates_processes_externally:
             self._call_children_scripts()
             _launch_process_observer(self.procs)
+
+        _set_num_threads_if_needed(num_processes=self.num_processes)
         return function(*args, **kwargs)
 
+    @override
     def kill(self, signum: _SIGNUM) -> None:
         for proc in self.procs:
-            log.info(f"pid {os.getpid()} killing {proc.pid} with {signum}")
+            log.debug(f"Process {os.getpid()} is terminating {proc.pid} with {signum}")
             # this skips subprocesses already terminated
             proc.send_signal(signum)
 

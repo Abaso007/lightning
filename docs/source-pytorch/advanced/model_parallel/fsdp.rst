@@ -6,24 +6,21 @@
 Train models with billions of parameters using FSDP
 ###################################################
 
-Use Fully Shared Data Parallel (FSDP) to train large models with billions of parameters efficiently on multiple GPUs and across multiple machines.
-
-.. note:: This is an experimental feature.
-
+Use Fully Sharded Data Parallel (FSDP) to train large models with billions of parameters efficiently on multiple GPUs and across multiple machines.
 
 Today, large models with billions of parameters are trained with many GPUs across several machines in parallel.
-Even a single H100 GPU with 80 GB of VRAM (the biggest today) is not enough to train just a 30B parameter model (even with batch size 1 and 16-bit precision).
+Even a single H100 GPU with 80 GB of VRAM (one of the biggest today) is not enough to train just a 30B parameter model (even with batch size 1 and 16-bit precision).
 The memory consumption for training is generally made up of
 
 1. the model parameters,
-2. the layer activations (forward) and
-3. the gradients (backward).
-4. the optimizer states (e.g., Adam has two additional exponential averages per parameter),
+2. the layer activations (forward),
+3. the gradients (backward) and
+4. the optimizer states (e.g., Adam has two additional exponential averages per parameter).
 
 |
 
 When the sum of these memory components exceed the VRAM of a single GPU, regular data-parallel training (DDP) can no longer be employed.
-One of the methods that can alleviate this limitation is called **model-parallel** training, and known as **FSDP** in PyTorch, and in this guide, you will learn how to effectively scale large models with it.
+One of the methods that can alleviate this limitation is called **Fully Sharded Data Parallel (FSDP)**, and in this guide, you will learn how to effectively scale large models with it.
 
 
 ----
@@ -200,7 +197,8 @@ Before:
     class LanguageModel(L.LightningModule):
         def __init__(self, vocab_size):
             super().__init__()
-            self.model = Transformer(vocab_size=vocab_size, nlayers=32, nhid=4096, ninp=1024, nhead=64)  # 1B parameters
+            # 1B parameters
+            self.model = Transformer(vocab_size=vocab_size, nlayers=32, nhid=4096, ninp=1024, nhead=64)
 
 After:
 
@@ -246,6 +244,8 @@ You can configure the following options to trade-off memory for speed:
         sharding_strategy="FULL_SHARD",
         # Shard gradients, optimizer state (2 + 3)
         sharding_strategy="SHARD_GRAD_OP",
+        # Full-shard within a machine, replicate across machines
+        sharding_strategy="HYBRID_SHARD",
         # Don't shard anything (similar to DDP)
         sharding_strategy="NO_SHARD",
     )
@@ -256,6 +256,7 @@ You can configure the following options to trade-off memory for speed:
 
 1. Try the default settings first (FULL_SHARD). This is the slowest but will save you the most memory.
 2. Try SHARD_GRAD_OP. If you run out of memory, revert back to the default (FULL_SHARD). Otherwise you should expect to see an increase in iteration speed.
+3. If you are training across many machines, try HYBRID_SHARD.
 
 |
 
@@ -394,13 +395,14 @@ The resulting checkpoint folder will have this structure:
     ├── .metadata
     ├── __0_0.distcp
     ├── __1_0.distcp
+    ...
     └── meta.pt
 
 The “sharded” checkpoint format is the most efficient to save and load in Lightning.
 
 **Which checkpoint format should I use?**
 
-- ``state_dict_type="sharded"``: Use for pre-training very large models. It is fast and uses less memory, but it is less portable - you can’t easily load the checkpoint in raw PyTorch (in the future, Lightning will provide utilities to convert the checkpoint though).
+- ``state_dict_type="sharded"``: Use for pre-training very large models. It is fast and uses less memory, but it is less portable. An extra step is needed to :doc:`convert the sharded checkpoint into a regular checkpoint file <../../common/checkpointing_expert>`.
 - ``state_dict_type="full"``: Use when pre-training small to moderately large models (less than 10B parameters), when fine-tuning, and when portability is required.
 
 

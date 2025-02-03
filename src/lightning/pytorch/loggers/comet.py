@@ -19,11 +19,13 @@ Comet Logger
 import logging
 import os
 from argparse import Namespace
-from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING, Union
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from lightning_utilities.core.imports import RequirementCache
 from torch import Tensor
 from torch.nn import Module
+from typing_extensions import override
 
 from lightning.fabric.utilities.logger import _add_prefix, _convert_params, _flatten_dict
 from lightning.pytorch.loggers.logger import Logger, rank_zero_experiment
@@ -87,7 +89,7 @@ class CometLogger(Logger):
 
     **Log Hyperparameters:**
 
-    Log parameters used to initialize a :class:`~lightning.pytorch.core.module.LightningModule`:
+    Log parameters used to initialize a :class:`~lightning.pytorch.core.LightningModule`:
 
     .. code-block:: python
 
@@ -259,16 +261,15 @@ class CometLogger(Logger):
     @property
     @rank_zero_experiment
     def experiment(self) -> Union["Experiment", "ExistingExperiment", "OfflineExperiment"]:
-        r"""
-        Actual Comet object. To use Comet features in your
-        :class:`~lightning.pytorch.core.module.LightningModule` do the following.
+        r"""Actual Comet object. To use Comet features in your :class:`~lightning.pytorch.core.LightningModule` do the
+        following.
 
         Example::
 
             self.logger.experiment.some_comet_function()
 
         """
-        if self._experiment is not None:
+        if self._experiment is not None and self._experiment.alive:
             return self._experiment
 
         if self._future_experiment_key is not None:
@@ -303,12 +304,14 @@ class CometLogger(Logger):
 
         return self._experiment
 
+    @override
     @rank_zero_only
-    def log_hyperparams(self, params: Union[Dict[str, Any], Namespace]) -> None:  # type: ignore[override]
+    def log_hyperparams(self, params: Union[dict[str, Any], Namespace]) -> None:
         params = _convert_params(params)
         params = _flatten_dict(params)
         self.experiment.log_parameters(params)
 
+    @override
     @rank_zero_only
     def log_metrics(self, metrics: Mapping[str, Union[Tensor, float]], step: Optional[int] = None) -> None:
         assert rank_zero_only.rank == 0, "experiment tried to log from global_rank != 0"
@@ -325,16 +328,16 @@ class CometLogger(Logger):
     def reset_experiment(self) -> None:
         self._experiment = None
 
+    @override
     @rank_zero_only
     def finalize(self, status: str) -> None:
-        r"""
-        When calling ``self.experiment.end()``, that experiment won't log any more data to Comet.
-        That's why, if you need to log any more data, you need to create an ExistingCometExperiment.
-        For example, to log data when testing your model after training, because when training is
-        finalized :meth:`CometLogger.finalize` is called.
+        r"""When calling ``self.experiment.end()``, that experiment won't log any more data to Comet. That's why, if you
+        need to log any more data, you need to create an ExistingCometExperiment. For example, to log data when testing
+        your model after training, because when training is finalized :meth:`CometLogger.finalize` is called.
 
         This happens automatically in the :meth:`~CometLogger.experiment` property, when
         ``self._experiment`` is set to ``None``, i.e. ``self.reset_experiment()``.
+
         """
         if self._experiment is None:
             # When using multiprocessing, finalize() should be a no-op on the main process, as no experiment has been
@@ -344,6 +347,7 @@ class CometLogger(Logger):
         self.reset_experiment()
 
     @property
+    @override
     def save_dir(self) -> Optional[str]:
         """Gets the save directory.
 
@@ -354,6 +358,7 @@ class CometLogger(Logger):
         return self._save_dir
 
     @property
+    @override
     def name(self) -> str:
         """Gets the project name.
 
@@ -371,6 +376,7 @@ class CometLogger(Logger):
         return "comet-default"
 
     @property
+    @override
     def version(self) -> str:
         """Gets the version.
 
@@ -405,7 +411,7 @@ class CometLogger(Logger):
 
         return self._future_experiment_key
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
 
         # Save the experiment id in case an experiment object already exists,
@@ -419,6 +425,7 @@ class CometLogger(Logger):
         state["_experiment"] = None
         return state
 
+    @override
     def log_graph(self, model: Module, input_array: Optional[Tensor] = None) -> None:
         if self._experiment is not None:
             self._experiment.set_model_graph(model)

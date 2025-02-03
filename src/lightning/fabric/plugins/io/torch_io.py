@@ -13,12 +13,13 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
+
+from typing_extensions import override
 
 from lightning.fabric.plugins.io.checkpoint_io import CheckpointIO
-from lightning.fabric.utilities.cloud_io import _atomic_save
+from lightning.fabric.utilities.cloud_io import _atomic_save, get_filesystem
 from lightning.fabric.utilities.cloud_io import _load as pl_load
-from lightning.fabric.utilities.cloud_io import get_filesystem
 from lightning.fabric.utilities.types import _PATH
 
 log = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class TorchCheckpointIO(CheckpointIO):
 
     """
 
-    def save_checkpoint(self, checkpoint: Dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
+    @override
+    def save_checkpoint(self, checkpoint: dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
         """Save model/training states as a checkpoint file through state-dump and file-write.
 
         Args:
@@ -55,11 +57,11 @@ class TorchCheckpointIO(CheckpointIO):
         fs.makedirs(os.path.dirname(path), exist_ok=True)
         _atomic_save(checkpoint, path)
 
+    @override
     def load_checkpoint(
         self, path: _PATH, map_location: Optional[Callable] = lambda storage, loc: storage
-    ) -> Dict[str, Any]:
-        """Loads checkpoint using :func:`torch.load`, with additional handling for ``fsspec`` remote loading of
-        files.
+    ) -> dict[str, Any]:
+        """Loads checkpoint using :func:`torch.load`, with additional handling for ``fsspec`` remote loading of files.
 
         Args:
             path: Path to checkpoint
@@ -70,6 +72,7 @@ class TorchCheckpointIO(CheckpointIO):
 
         Raises:
             FileNotFoundError: If ``path`` is not found by the ``fsspec`` filesystem
+
         """
 
         # Try to read the checkpoint at `path`. If not exist, do not restore checkpoint.
@@ -79,6 +82,7 @@ class TorchCheckpointIO(CheckpointIO):
 
         return pl_load(path, map_location=map_location)
 
+    @override
     def remove_checkpoint(self, path: _PATH) -> None:
         """Remove checkpoint file from the filesystem.
 

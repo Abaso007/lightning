@@ -3,7 +3,7 @@ set -e  # exit on error
 echo "--- Install packages ---"
 # show what's already installed
 pip3 list
-# typing-extensions==4.5.0 comes pre-installed in the environment, and pydantic doesnt support that, however,
+# typing-extensions==4.5.0 comes pre-installed in the environment, and pydantic doesn't support that, however,
 # pip cannot upgrade it because it's in the system folder: needs sudo
 sudo pip3 install -U typing-extensions
 # set particular PyTorch version
@@ -17,12 +17,7 @@ pip3 list
 
 # https://cloud.google.com/tpu/docs/v4-users-guide#train_ml_workloads_with_pytorch_xla
 export ALLOW_MULTIPLE_LIBTPU_LOAD=1
-if [ "{RUNTIME}" = "xrt" ]; then
-  export XRT_TPU_CONFIG="localservice;0;localhost:51011"
-  export TPU_NUM_DEVICES=4
-else
-  export PJRT_DEVICE=TPU
-fi
+export PJRT_DEVICE=TPU
 
 echo "--- Sanity check TPU availability ---"
 python3 -c "import torch_xla; print(torch_xla)"
@@ -34,7 +29,7 @@ cd tests/tests_pytorch
 PL_RUN_TPU_TESTS=1 python3 -m coverage run --source=lightning -m pytest -vv --durations=0 --timeout 60 ./
 
 echo "--- Running standalone PL tests ---"
-PL_RUN_TPU_TESTS=1 PL_STANDALONE_TESTS_BATCH_SIZE=1 bash run_standalone_tests.sh
+PL_RUN_TPU_TESTS=1 PL_STANDALONE_TESTS_BATCH_SIZE=1 bash ../run_standalone_tests.sh "."
 
 echo "--- Generating coverage ---"
 python3 -m coverage xml

@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import os
 from argparse import Namespace
-from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING, Union
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from lightning_utilities.core.imports import RequirementCache
 from torch import Tensor
 from torch.nn import Module
+from typing_extensions import override
 
 from lightning.fabric.loggers.logger import Logger, rank_zero_experiment
 from lightning.fabric.utilities.cloud_io import _is_dir, get_filesystem
@@ -28,8 +29,6 @@ from lightning.fabric.utilities.logger import _sanitize_params as _utils_sanitiz
 from lightning.fabric.utilities.rank_zero import rank_zero_only, rank_zero_warn
 from lightning.fabric.utilities.types import _PATH
 from lightning.fabric.wrappers import _unwrap_objects
-
-log = logging.getLogger(__name__)
 
 _TENSORBOARD_AVAILABLE = RequirementCache("tensorboard")
 _TENSORBOARDX_AVAILABLE = RequirementCache("tensorboardX")
@@ -77,6 +76,7 @@ class TensorBoardLogger(Logger):
         logger.finalize("success")
 
     """
+
     LOGGER_JOIN_CHAR = "-"
 
     def __init__(
@@ -105,10 +105,11 @@ class TensorBoardLogger(Logger):
         self._prefix = prefix
         self._fs = get_filesystem(root_dir)
 
-        self._experiment: Optional["SummaryWriter"] = None
+        self._experiment: Optional[SummaryWriter] = None
         self._kwargs = kwargs
 
     @property
+    @override
     def name(self) -> str:
         """Get the name of the experiment.
 
@@ -119,6 +120,7 @@ class TensorBoardLogger(Logger):
         return self._name
 
     @property
+    @override
     def version(self) -> Union[int, str]:
         """Get the experiment version.
 
@@ -131,6 +133,7 @@ class TensorBoardLogger(Logger):
         return self._version
 
     @property
+    @override
     def root_dir(self) -> str:
         """Gets the save directory where the TensorBoard experiments are saved.
 
@@ -141,6 +144,7 @@ class TensorBoardLogger(Logger):
         return self._root_dir
 
     @property
+    @override
     def log_dir(self) -> str:
         """The directory for this run's tensorboard checkpoint.
 
@@ -191,6 +195,7 @@ class TensorBoardLogger(Logger):
         self._experiment = SummaryWriter(log_dir=self.log_dir, **self._kwargs)
         return self._experiment
 
+    @override
     @rank_zero_only
     def log_metrics(self, metrics: Mapping[str, float], step: Optional[int] = None) -> None:
         assert rank_zero_only.rank == 0, "experiment tried to log from global_rank != 0"
@@ -212,17 +217,22 @@ class TensorBoardLogger(Logger):
                         f"\n you tried to log {v} which is currently not supported. Try a dict or a scalar/tensor."
                     ) from ex
 
+    @override
     @rank_zero_only
-    def log_hyperparams(  # type: ignore[override]
-        self, params: Union[Dict[str, Any], Namespace], metrics: Optional[Dict[str, Any]] = None
+    def log_hyperparams(
+        self,
+        params: Union[dict[str, Any], Namespace],
+        metrics: Optional[dict[str, Any]] = None,
+        step: Optional[int] = None,
     ) -> None:
         """Record hyperparameters. TensorBoard logs with and without saved hyperparameters are incompatible, the
         hyperparameters are then not displayed in the TensorBoard. Please delete or move the previously saved logs to
         display the new ones with hyperparameters.
 
         Args:
-            params: a dictionary-like container with the hyperparameters
+            params: A dictionary-like container with the hyperparameters
             metrics: Dictionary with metric names as keys and measured quantities as values
+            step: Optional global step number for the logged metrics
 
         """
         params = _convert_params(params)
@@ -238,7 +248,7 @@ class TensorBoardLogger(Logger):
             metrics = {"hp_metric": metrics}
 
         if metrics:
-            self.log_metrics(metrics, 0)
+            self.log_metrics(metrics, step)
 
             if _TENSORBOARD_AVAILABLE:
                 from torch.utils.tensorboard.summary import hparams
@@ -247,10 +257,11 @@ class TensorBoardLogger(Logger):
 
             exp, ssi, sei = hparams(params, metrics)
             writer = self.experiment._get_file_writer()
-            writer.add_summary(exp)
-            writer.add_summary(ssi)
-            writer.add_summary(sei)
+            writer.add_summary(exp, step)
+            writer.add_summary(ssi, step)
+            writer.add_summary(sei, step)
 
+    @override
     @rank_zero_only
     def log_graph(self, model: Module, input_array: Optional[Tensor] = None) -> None:
         model_example_input = getattr(model, "example_input_array", None)
@@ -278,10 +289,12 @@ class TensorBoardLogger(Logger):
         else:
             self.experiment.add_graph(model, input_array)
 
+    @override
     @rank_zero_only
     def save(self) -> None:
         self.experiment.flush()
 
+    @override
     @rank_zero_only
     def finalize(self, status: str) -> None:
         if self._experiment is not None:
@@ -294,8 +307,6 @@ class TensorBoardLogger(Logger):
         try:
             listdir_info = self._fs.listdir(save_dir)
         except OSError:
-            # TODO(fabric): This message can be confusing (did user do something wrong?). Improve it or remove it.
-            log.warning("Missing logger folder: %s", save_dir)
             return 0
 
         existing_versions = []
@@ -304,19 +315,20 @@ class TensorBoardLogger(Logger):
             bn = os.path.basename(d)
             if _is_dir(self._fs, d) and bn.startswith("version_"):
                 dir_ver = bn.split("_")[1].replace("/", "")
-                existing_versions.append(int(dir_ver))
+                if dir_ver.isdigit():
+                    existing_versions.append(int(dir_ver))
         if len(existing_versions) == 0:
             return 0
 
         return max(existing_versions) + 1
 
     @staticmethod
-    def _sanitize_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
         params = _utils_sanitize_params(params)
         # logging of arrays with dimension > 1 is not supported, sanitize as string
         return {k: str(v) if hasattr(v, "ndim") and v.ndim > 1 else v for k, v in params.items()}
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         state["_experiment"] = None
         return state

@@ -29,18 +29,19 @@ For the Lightning developer: How to add a new migration?
    python -m lightning.pytorch.utilities.upgrade_checkpoint model.ckpt
 
 """
+
 import re
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 
 from lightning.fabric.utilities.warnings import PossibleUserWarning
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.utilities.rank_zero import rank_zero_warn
 
-_CHECKPOINT = Dict[str, Any]
+_CHECKPOINT = dict[str, Any]
 
 
-def _migration_index() -> Dict[str, List[Callable[[_CHECKPOINT], _CHECKPOINT]]]:
+def _migration_index() -> dict[str, list[Callable[[_CHECKPOINT], _CHECKPOINT]]]:
     """Migration functions returned here will get executed in the order they are listed."""
     return {
         "0.10.0": [_migrate_model_checkpoint_early_stopping],
@@ -132,7 +133,7 @@ def _migrate_loop_batches_that_stepped(checkpoint: _CHECKPOINT) -> _CHECKPOINT:
     return checkpoint
 
 
-def _get_fit_loop_initial_state_1_6_0() -> Dict:
+def _get_fit_loop_initial_state_1_6_0() -> dict:
     return {
         "epoch_loop.batch_loop.manual_loop.optim_step_progress": {
             "current": {"completed": 0, "ready": 0},
@@ -182,12 +183,13 @@ def _get_fit_loop_initial_state_1_6_0() -> Dict:
 
 def _migrate_model_checkpoint_save_on_train_epoch_end_default(checkpoint: _CHECKPOINT) -> _CHECKPOINT:
     """The ``save_on_train_epoch_end`` was removed from the state-key of ``ModelCheckpoint`` in 1.9.0, and this
-    migration drops it from the state-keys saved in the checkpoint dict so that the keys match when the Trainer
-    loads the callback state.
+    migration drops it from the state-keys saved in the checkpoint dict so that the keys match when the Trainer loads
+    the callback state.
 
     Version: 1.9.0
     Commit: f4ca56
     PR: #15300, #15606
+
     """
     if "callbacks" not in checkpoint:
         return checkpoint
@@ -305,12 +307,13 @@ def _migrate_loop_structure_after_optimizer_loop_removal(checkpoint: _CHECKPOINT
 
 
 def _migrate_loop_structure_after_dataloader_loop_removal(checkpoint: _CHECKPOINT) -> _CHECKPOINT:
-    """The dataloader loops (``_DataLoaderLoop``, ``_PredictionLoop`, and ``_EvaluationLoop``) were flattened into
-    the ``_EvaluationEpochLoop`` (now ``_EvaluationLoop``) and ``_PredictionEpochLoop`` (now ``_PredictionLoop``).
+    """The dataloader loops (``_DataLoaderLoop``, ``_PredictionLoop`, and ``_EvaluationLoop``) were flattened into the
+    ``_EvaluationEpochLoop`` (now ``_EvaluationLoop``) and ``_PredictionEpochLoop`` (now ``_PredictionLoop``).
 
     Version: 2.0.0
     Commit: ec4f592ecfe238edd83185f6c6905fb1e2406d61
     PR: #16726
+
     """
     if "loops" not in checkpoint:
         return checkpoint

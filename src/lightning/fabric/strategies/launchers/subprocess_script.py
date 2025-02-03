@@ -16,14 +16,17 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
-from threading import Thread
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Callable, Optional
 
 from lightning_utilities.core.imports import RequirementCache
+from typing_extensions import override
 
 from lightning.fabric.plugins.environments.cluster_environment import ClusterEnvironment
 from lightning.fabric.strategies.launchers.launcher import _Launcher
+from lightning.fabric.utilities.distributed import _set_num_threads_if_needed
 from lightning.fabric.utilities.rank_zero import rank_prefixed_message
 
 _logger = logging.getLogger(__name__)
@@ -78,12 +81,14 @@ class _SubprocessScriptLauncher(_Launcher):
         self.cluster_environment = cluster_environment
         self.num_processes = num_processes
         self.num_nodes = num_nodes
-        self.procs: List[subprocess.Popen] = []  # launched child subprocesses, does not include the launcher
+        self.procs: list[subprocess.Popen] = []  # launched child subprocesses, does not include the launcher
 
     @property
+    @override
     def is_interactive_compatible(self) -> bool:
         return False
 
+    @override
     def launch(self, function: Callable, *args: Any, **kwargs: Any) -> Any:
         """Creates new processes, then calls the given function.
 
@@ -98,6 +103,8 @@ class _SubprocessScriptLauncher(_Launcher):
         if not self.cluster_environment.creates_processes_externally:
             self._call_children_scripts()
             _launch_process_observer(self.procs)
+
+        _set_num_threads_if_needed(num_processes=self.num_processes)
         return function(*args, **kwargs)
 
     def _call_children_scripts(self) -> None:
@@ -156,10 +163,11 @@ def _basic_subprocess_cmd() -> Sequence[str]:
     return [sys.executable, "-m", __main__.__spec__.name] + sys.argv[1:]
 
 
-def _hydra_subprocess_cmd(local_rank: int) -> Tuple[Sequence[str], str]:
-    import __main__  # local import to avoid https://github.com/Lightning-AI/lightning/issues/15218
+def _hydra_subprocess_cmd(local_rank: int) -> tuple[Sequence[str], str]:
     from hydra.core.hydra_config import HydraConfig
     from hydra.utils import get_original_cwd, to_absolute_path
+
+    import __main__  # local import to avoid https://github.com/Lightning-AI/lightning/issues/15218
 
     # when user is using hydra find the absolute path
     if __main__.__spec__ is None:  # pragma: no-cover
@@ -176,17 +184,14 @@ def _hydra_subprocess_cmd(local_rank: int) -> Tuple[Sequence[str], str]:
     return command, cwd
 
 
-def _launch_process_observer(child_processes: List[subprocess.Popen]) -> None:
+def _launch_process_observer(child_processes: list[subprocess.Popen]) -> None:
     """Launches a thread that runs along the main process and monitors the health of all processes."""
-    monitor_thread = Thread(
-        target=_ChildProcessObserver(child_processes=child_processes, main_pid=os.getpid()),
-        daemon=True,  # thread stops if the main process exits
-    )
-    monitor_thread.start()
+    _ChildProcessObserver(child_processes=child_processes, main_pid=os.getpid()).start()
 
 
-class _ChildProcessObserver:
-    def __init__(self, main_pid: int, child_processes: List[subprocess.Popen], sleep_period: int = 5) -> None:
+class _ChildProcessObserver(threading.Thread):
+    def __init__(self, main_pid: int, child_processes: list[subprocess.Popen], sleep_period: int = 5) -> None:
+        super().__init__(daemon=True, name="child-process-observer")  # thread stops if the main process exits
         self._main_pid = main_pid
         self._child_processes = child_processes
         self._sleep_period = sleep_period
@@ -194,7 +199,8 @@ class _ChildProcessObserver:
         self._termination_signal = signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL
         self._finished = False
 
-    def __call__(self) -> None:
+    @override
+    def run(self) -> None:
         while not self._finished:
             time.sleep(self._sleep_period)
             self._finished = self._run()

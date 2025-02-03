@@ -1,25 +1,22 @@
-###########################################
-Training models with billions of parameters
-###########################################
+#####################################################
+Training models with billions of parameters with FSDP
+#####################################################
 
-Use Fully Shared Data Parallel (FSDP) to train large models with billions of parameters efficiently on multiple GPUs and across multiple machines.
-
-.. note:: This is an experimental feature.
-
+Use Fully Sharded Data Parallel (FSDP) to train large models with billions of parameters efficiently on multiple GPUs and across multiple machines.
 
 Today, large models with billions of parameters are trained with many GPUs across several machines in parallel.
-Even a single H100 GPU with 80 GB of VRAM (the biggest today) is not enough to train just a 30B parameter model (even with batch size 1 and 16-bit precision).
+Even a single H100 GPU with 80 GB of VRAM (one of the biggest today) is not enough to train just a 30B parameter model (even with batch size 1 and 16-bit precision).
 The memory consumption for training is generally made up of
 
 1. the model parameters,
-2. the layer activations (forward) and
-3. the gradients (backward).
-4. the optimizer states (e.g., Adam has two additional exponential averages per parameter),
+2. the layer activations (forward),
+3. the gradients (backward) and
+4. the optimizer states (e.g., Adam has two additional exponential averages per parameter).
 
 |
 
 When the sum of these memory components exceed the VRAM of a single GPU, regular data-parallel training (DDP) can no longer be employed.
-One of the methods that can alleviate this limitation is called **model-parallel** training, and known as **FSDP** in PyTorch, and in this guide, you will learn how to effectively scale large models with it.
+One of the methods that can alleviate this limitation is called **Fully Sharded Data Parallel (FSDP)**, and in this guide, you will learn how to effectively scale large models with it.
 
 
 ----
@@ -216,6 +213,8 @@ You can configure the following options to trade-off memory for speed:
         sharding_strategy="FULL_SHARD",
         # Shard gradients, optimizer state (2 + 3)
         sharding_strategy="SHARD_GRAD_OP",
+        # Full-shard within a machine, replicate across machines
+        sharding_strategy="HYBRID_SHARD",
         # Don't shard anything (similar to DDP)
         sharding_strategy="NO_SHARD",
     )
@@ -226,6 +225,7 @@ You can configure the following options to trade-off memory for speed:
 
 1. Try the default settings first (FULL_SHARD). This is the slowest but will save you the most memory.
 2. Try SHARD_GRAD_OP. If you run out of memory, revert back to the default (FULL_SHARD). Otherwise you should expect to see an increase in iteration speed.
+3. If you are training across many machines, try HYBRID_SHARD.
 
 |
 
@@ -355,6 +355,7 @@ The resulting checkpoint folder will have this structure:
     ├── .metadata
     ├── __0_0.distcp
     ├── __1_0.distcp
+    ...
     └── meta.pt
 
 The “sharded” checkpoint format is the most efficient to save and load in Fabric.
@@ -371,7 +372,7 @@ However, if you prefer to have a single consolidated file instead, you can confi
 
 **Which checkpoint format should I use?**
 
-- ``state_dict_type="sharded"``: Use for pre-training very large models. It is fast and uses less memory, but it is less portable - you can’t easily load the checkpoint in raw PyTorch (in the future, Lightning will provide utilities to convert the checkpoint though).
+- ``state_dict_type="sharded"``: Use for pre-training very large models. It is fast and uses less memory, but it is less portable. An extra step is needed to :doc:`convert the sharded checkpoint into a regular checkpoint file <../../guide/checkpoint/distributed_checkpoint>`.
 - ``state_dict_type="full"``: Use when pre-training small to moderately large models (less than 10B parameters), when fine-tuning, and when portability is required.
 
 
@@ -397,7 +398,7 @@ You can easily load checkpoints saved by Fabric to resume training:
 
 Fabric will automatically recognize whether the provided path contains a checkpoint saved with ``state_dict_type="full"`` or ``state_dict_type="sharded"``.
 Checkpoints saved with ``state_dict_type="full"`` can be loaded by all strategies, but sharded checkpoints can only be loaded by FSDP.
-Read :doc:`the checkpoints guide <../../guide/checkpoint>` to explore more features.
+Read :doc:`the checkpoints guide <../../guide/checkpoint/index>` to explore more features.
 
 
 ----
@@ -409,83 +410,6 @@ Advanced performance optimizations
 
 If you’ve reached a good understanding of how the different FSDP settings impact the memory usage and speed of your model, here are a few more to squeeze out the last bit of performance.
 These settings really depend on the specific use cases, so you will have to turn them on and off to see the impact on your model.
-
-Overlap backward and optimizer’s step
-=====================================
-
-Fabric provides a context manager that allows you to overlap the backward and optimizer step to save significant memory and speed up the iteration time too.
-By overlapping the two, we eliminate the need to store all gradients at once in memory.
-Instead, the optimizer step updates are applied directly during backward as gradients become available, and the memory for gradients is immediately freed up.
-
-Here is the recipe:
-
-.. code-block:: python
-
-    # 1. Import the context manager
-    from lightning.fabric.strategies.fsdp import fsdp_overlap_step_with_backward
-
-    # 2. Create one optimizer instance per parameter
-    optimizers = [torch.optim.Adam([p], ...) for p in model.parameters()]
-    model, *optimizers = fabric.setup(model, *optimizers)
-
-    ...
-
-    for i in range(max_iters):
-        loss = ...
-
-        # 3. Instead of calling `optimizer.step()`, call `fabric.backward(loss)`
-        #    within the context manager
-        with fsdp_overlap_step_with_backward(optimizers, model):
-            fabric.backward(loss)
-
-        # optimizer.step()
-
-
-.. collapse:: Full example
-
-    .. code-block:: python
-
-        import torch
-        import torch.nn as nn
-        import torch.nn.functional as F
-
-        import lightning as L
-        from lightning.fabric.strategies.fsdp import FSDPStrategy, fsdp_overlap_step_with_backward
-        from lightning.pytorch.demos import Transformer, WikiText2
-
-        policy = {nn.TransformerEncoderLayer, nn.TransformerDecoderLayer}
-        strategy = FSDPStrategy(auto_wrap_policy=policy)
-        fabric = L.Fabric(accelerator="cuda", devices=2, strategy=strategy)
-        fabric.launch()
-
-        fabric.seed_everything(42)
-
-        with fabric.rank_zero_first():
-            dataset = WikiText2()
-
-        # 1B parameters
-        model = Transformer(vocab_size=dataset.vocab_size, nlayers=32, nhid=4096, ninp=1024, nhead=64)
-        optimizers = [torch.optim.Adam([p], lr=0.1) for p in model.parameters()]
-
-        model, *optimizers = fabric.setup(model, *optimizers)
-
-        for i in range(10):
-            input, target = fabric.to_device(dataset[i])
-            output = model(input.unsqueeze(0), target.unsqueeze(0))
-            loss = F.nll_loss(output, target.view(-1))
-
-            with fsdp_overlap_step_with_backward(optimizers, model):
-                fabric.backward(loss)
-                # no `optimizer.step()` here!
-
-            fabric.print(loss.item())
-
-        fabric.print(torch.cuda.memory_summary())
-
-|
-
-`Read the detailed blog post here <https://lightning.ai/pages/community/tutorial/faster-pytorch-training-by-reducing-peak-memory/>`_.
-Note that this feature cannot work with gradient accumulation!
 
 
 Disable foreach in the optimizer

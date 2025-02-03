@@ -36,12 +36,15 @@ See also: :doc:`../fundamentals/accelerators`
 strategy
 ========
 
-Choose a training strategy: ``"dp"``, ``"ddp"``, ``"ddp_spawn"``, ``"xla"``, ``"deepspeed"``, ``"fsdp"````.
+Choose a training strategy: ``"dp"``, ``"ddp"``, ``"ddp_spawn"``, ``"ddp_find_unused_parameters_true"``, ``"xla"``, ``"deepspeed"``, ``"fsdp"``.
 
 .. code-block:: python
 
     # Running with the DistributedDataParallel strategy on 4 GPUs
     fabric = Fabric(strategy="ddp", accelerator="gpu", devices=4)
+
+    # Running with the DDP strategy with find unused parameters enabled on 4 GPUs
+    fabric = Fabric(strategy="ddp_find_unused_parameters_true", accelerator="gpu", devices=4)
 
     # Running with the DDP Spawn strategy using 4 CPU processes
     fabric = Fabric(strategy="ddp_spawn", accelerator="cpu", devices=4)
@@ -131,7 +134,7 @@ Automatic mixed precision settings are denoted by a ``"-mixed"`` suffix, while "
     # 16-bit bfloat mixed precision (model weights remain in torch.float32)
     fabric = Fabric(precision="bf16-mixed", devices=1)
 
-    # 8-bit mixed precision via TransformerEngine (model weights remain in torch.float32)
+    # 8-bit mixed precision via TransformerEngine (model weights get cast to torch.bfloat16)
     fabric = Fabric(precision="transformer-engine", devices=1)
 
     # 16-bit precision (model weights get cast to torch.float16)
@@ -142,6 +145,17 @@ Automatic mixed precision settings are denoted by a ``"-mixed"`` suffix, while "
 
     # 64-bit (double) precision (model weights get cast to torch.float64)
     fabric = Fabric(precision="64-true", devices=1)
+
+
+Precision settings can also be enabled via the plugins argument (see section below on plugins).
+An example is the weights quantization plugin Bitsandbytes for 4-bit and 8-bit:
+
+.. code-block:: python
+
+    from lightning.fabric.plugins import BitsandbytesPrecision
+
+    precision = BitsandbytesPrecision(mode="nf4-dq", dtype=torch.bfloat16)
+    fabric = Fabric(plugins=precision)
 
 
 plugins

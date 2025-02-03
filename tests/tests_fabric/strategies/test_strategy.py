@@ -16,11 +16,9 @@ from unittest.mock import Mock, PropertyMock
 
 import pytest
 import torch
-from torch import nn
 
 from lightning.fabric.plugins import DoublePrecision, HalfPrecision, Precision
 from lightning.fabric.strategies import SingleDeviceStrategy
-from lightning.fabric.utilities.imports import _TORCH_GREATER_EQUAL_2_0
 from lightning.fabric.utilities.types import _Stateful
 from tests_fabric.helpers.runif import RunIf
 
@@ -56,7 +54,7 @@ def test_save_checkpoint_convert_stateful_objects(tmp_path):
     save_checkpoint_mock = Mock()
     strategy.checkpoint_io.save_checkpoint = save_checkpoint_mock
 
-    model = nn.Linear(3, 3)
+    model = torch.nn.Linear(3, 3)
     optimizer = torch.optim.Adam(model.parameters())
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, 0.99)
 
@@ -115,12 +113,12 @@ def test_load_checkpoint_model_optimizer_from_raw_checkpoint(tmp_path):
     """Test that the `load_checkpoint` can load raw state dict checkpoints too."""
     strategy = SingleDeviceStrategy()  # surrogate class to test implementation in base class
 
-    model = nn.Linear(3, 3)
+    model = torch.nn.Linear(3, 3)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
     torch.save(model.state_dict(), tmp_path / "model.ckpt")
     torch.save(optimizer.state_dict(), tmp_path / "optimizer.ckpt")
 
-    new_model = nn.Linear(3, 3)
+    new_model = torch.nn.Linear(3, 3)
     new_optimizer = torch.optim.Adam(new_model.parameters(), lr=2.0)
 
     strategy.load_checkpoint(tmp_path / "model.ckpt", state=new_model, strict=False)
@@ -147,13 +145,13 @@ def test_load_checkpoint_in_place(tmp_path):
     strategy = SingleDeviceStrategy()  # surrogate class to test implementation in base class
 
     # objects with initial state
-    saved_model = nn.Linear(2, 2)
+    saved_model = torch.nn.Linear(2, 2)
     saved_optimizer = torch.optim.Adam(saved_model.parameters(), lr=0.1)
     saved_state = {"model": saved_model, "optimizer": saved_optimizer, "int": 1, "dict": {"cocofruit": 2}}
     strategy.save_checkpoint(tmp_path / "checkpoint", state=saved_state)
 
     # same objects with different state
-    model = nn.Linear(2, 2)
+    model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.3)
     state = {"model": model, "optimizer": optimizer, "int": 10, "dict": {"cocofruit": 20}}
     assert not torch.equal(model.weight, saved_model.weight)
@@ -167,7 +165,7 @@ def test_load_checkpoint_in_place(tmp_path):
     assert not remainder
 
     # partial load - only model, no optimizer
-    model = nn.Linear(2, 2)
+    model = torch.nn.Linear(2, 2)
     state = {"model": model}
     remainder = strategy.load_checkpoint(tmp_path / "checkpoint", state)
     assert torch.equal(model.weight, saved_model.weight)
@@ -190,13 +188,13 @@ def test_load_checkpoint_non_strict_loading(tmp_path):
     strategy = SingleDeviceStrategy()  # surrogate class to test implementation in base class
 
     # objects with initial state
-    saved_model = nn.Linear(2, 2)
+    saved_model = torch.nn.Linear(2, 2)
     saved_optimizer = torch.optim.Adam(saved_model.parameters(), lr=0.1)
     saved_state = {"model": saved_model, "optimizer": saved_optimizer, "int": 1, "str": "test"}
     strategy.save_checkpoint(tmp_path / "checkpoint.ckpt", state=saved_state)
 
     # same objects with different state
-    model = nn.Linear(2, 2)
+    model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.3)
     state = {"model": model, "optimizer": optimizer, "int": 2, "new": "not_present_in_saved_state"}
     assert not torch.equal(model.weight, saved_model.weight)
@@ -212,7 +210,6 @@ def test_load_checkpoint_non_strict_loading(tmp_path):
     assert "new" not in remainder
 
 
-@RunIf(min_torch="1.13")
 @pytest.mark.parametrize(
     "device",
     [
@@ -241,8 +238,7 @@ def test_module_init_context(device, precision, dtype, empty_init, monkeypatch):
     with strategy.module_init_context(empty_init=empty_init):
         module = torch.nn.Linear(2, 2)
 
-    expected_device = device if _TORCH_GREATER_EQUAL_2_0 else torch.device("cpu")
-    assert module.weight.device == module.bias.device == expected_device
+    assert module.weight.device == module.bias.device == device
     assert module.weight.dtype == module.bias.dtype == dtype
     if not empty_init:
         init_mock.assert_called()
@@ -276,8 +272,7 @@ def test_tensor_init_context(device, precision, dtype):
         tensor1 = torch.tensor(42)
         tensor2 = torch.tensor(42.0, dtype=torch.half)
 
-    expected_device = device if _TORCH_GREATER_EQUAL_2_0 else torch.device("cpu")
-    assert tensor0.device == tensor1.device == tensor2.device == expected_device
+    assert tensor0.device == tensor1.device == tensor2.device == device
     assert tensor0.dtype == dtype
     assert tensor1.dtype == torch.long  # `.init_tensor()` only affects floating point dtypes
     assert tensor2.dtype == torch.half  # this tensor was created with an explicit dtype assignment

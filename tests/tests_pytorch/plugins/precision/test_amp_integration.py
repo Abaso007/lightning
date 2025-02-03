@@ -16,9 +16,10 @@ from unittest.mock import Mock
 import torch
 
 from lightning.fabric import seed_everything
+from lightning.fabric.utilities.imports import _TORCH_GREATER_EQUAL_2_4
 from lightning.pytorch import Trainer
 from lightning.pytorch.demos.boring_classes import BoringModel
-from lightning.pytorch.plugins.precision import MixedPrecisionPlugin
+from lightning.pytorch.plugins.precision import MixedPrecision
 from tests_pytorch.helpers.runif import RunIf
 
 
@@ -28,17 +29,18 @@ class FusedOptimizerParityModel(BoringModel):
         self.fused = fused
 
     def configure_optimizers(self):
-        assert isinstance(self.trainer.precision_plugin.scaler, torch.cuda.amp.GradScaler)
+        scaler_cls = torch.amp.GradScaler if _TORCH_GREATER_EQUAL_2_4 else torch.cuda.amp.GradScaler
+        assert isinstance(self.trainer.precision_plugin.scaler, scaler_cls)
         return torch.optim.Adam(self.parameters(), lr=1.0, fused=self.fused)
 
 
-@RunIf(min_torch="1.13", min_cuda_gpus=1)
-def test_amp_fused_optimizer_parity(tmpdir):
+@RunIf(min_cuda_gpus=1)
+def test_amp_fused_optimizer_parity(tmp_path):
     def run(fused=False):
         seed_everything(1234)
         model = FusedOptimizerParityModel(fused)
         trainer = Trainer(
-            default_root_dir=tmpdir,
+            default_root_dir=tmp_path,
             accelerator="cuda",
             devices=1,
             precision="16-mixed",
@@ -77,7 +79,7 @@ def test_skip_training_step_with_grad_scaler():
         max_steps=5,
         gradient_clip_val=0.5,
     )
-    assert isinstance(trainer.precision_plugin, MixedPrecisionPlugin)
+    assert isinstance(trainer.precision_plugin, MixedPrecision)
     assert trainer.precision_plugin.scaler is not None
     trainer.precision_plugin.scaler = Mock(wraps=trainer.precision_plugin.scaler)
     model = TestModel()

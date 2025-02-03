@@ -12,23 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import itertools
-from typing import Any, Callable, cast, Dict, Iterable, Iterator, List, Optional, Sized, Union
+from collections.abc import Iterable, Iterator, Sized
+from typing import Any, Callable, Optional, Union, cast
 
 import torch
 from torch import Tensor
 from torch.nn.parallel.distributed import DistributedDataParallel
 from torch.utils.data import DistributedSampler, Sampler
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from lightning.fabric.utilities.distributed import _DatasetSamplerWrapper
-from lightning.fabric.utilities.imports import _TORCH_GREATER_EQUAL_1_12
 from lightning.pytorch.utilities.rank_zero import rank_zero_debug, rank_zero_info
 from lightning.pytorch.utilities.types import _SizedIterable
 
 
 def _find_tensors(
-    obj: Union[Tensor, list, tuple, dict, Any]
-) -> Union[List[Tensor], itertools.chain]:  # pragma: no-cover
+    obj: Union[Tensor, list, tuple, dict, Any],
+) -> Union[list[Tensor], itertools.chain]:  # pragma: no-cover
     """Recursively find all tensors contained in the specified object."""
     if isinstance(obj, Tensor):
         return [obj]
@@ -164,24 +164,9 @@ def _register_ddp_comm_hook(
 def _sync_module_states(module: torch.nn.Module) -> None:
     """Taken from https://github.com/pytorch/pytorch/blob/v2.0.0/torch/nn/parallel/distributed.py#L675-L682."""
     parameters_to_ignore = (
-        set(module._ddp_params_and_buffers_to_ignore)  # type: ignore[arg-type]
-        if hasattr(module, "_ddp_params_and_buffers_to_ignore")
-        else set()
+        set(module._ddp_params_and_buffers_to_ignore) if hasattr(module, "_ddp_params_and_buffers_to_ignore") else set()
     )
     from torch.distributed.distributed_c10d import _get_default_group
-
-    if not _TORCH_GREATER_EQUAL_1_12:
-        module_states = []
-        for name, param in module.named_parameters():
-            if name not in parameters_to_ignore:
-                module_states.append(param.detach())
-        for name, buffer in module.named_buffers():
-            if name not in parameters_to_ignore:
-                module_states.append(buffer.detach())
-        if len(module_states) > 0:
-            torch.distributed._broadcast_coalesced(_get_default_group(), module_states, 250 * 1024 * 1024, 0)
-        return
-
     from torch.distributed.utils import _sync_module_states as torch_sync_module_states
 
     torch_sync_module_states(
@@ -216,7 +201,8 @@ class UnrepeatedDistributedSampler(DistributedSampler):
         # have at least one batch, or the DistributedDataParallel could lock up.
         assert self.num_samples >= 1 or self.total_size == 0
 
-    def __iter__(self) -> Iterator[List[int]]:
+    @override
+    def __iter__(self) -> Iterator[list[int]]:
         if not isinstance(self.dataset, Sized):
             raise TypeError("The given dataset must implement the `__len__` method.")
         if self.shuffle:
@@ -242,6 +228,7 @@ class UnrepeatedDistributedSamplerWrapper(UnrepeatedDistributedSampler):
     def __init__(self, sampler: Union[Sampler, Iterable], *args: Any, **kwargs: Any) -> None:
         super().__init__(_DatasetSamplerWrapper(sampler), *args, **kwargs)
 
+    @override
     def __iter__(self) -> Iterator:
         self.dataset.reset()
         return (self.dataset[index] for index in super().__iter__())
@@ -252,7 +239,7 @@ class _IndexBatchSamplerWrapper:
 
     def __init__(self, batch_sampler: _SizedIterable) -> None:
         # do not call super().__init__() on purpose
-        self.seen_batch_indices: List[List[int]] = []
+        self.seen_batch_indices: list[list[int]] = []
 
         self.__dict__ = {
             k: v
@@ -260,9 +247,9 @@ class _IndexBatchSamplerWrapper:
             if k not in ("__next__", "__iter__", "__len__", "__getstate__")
         }
         self._batch_sampler = batch_sampler
-        self._iterator: Optional[Iterator[List[int]]] = None
+        self._iterator: Optional[Iterator[list[int]]] = None
 
-    def __next__(self) -> List[int]:
+    def __next__(self) -> list[int]:
         assert self._iterator is not None
         batch = next(self._iterator)
         self.seen_batch_indices.append(batch)
@@ -276,7 +263,7 @@ class _IndexBatchSamplerWrapper:
     def __len__(self) -> int:
         return len(self._batch_sampler)
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         state["_iterator"] = None  # cannot pickle 'generator' object
         return state

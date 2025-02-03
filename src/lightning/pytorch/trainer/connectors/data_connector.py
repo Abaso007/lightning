@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import multiprocessing
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
+import torch.multiprocessing as mp
 from torch.utils.data import BatchSampler, DataLoader, RandomSampler, Sampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
@@ -25,18 +26,17 @@ from lightning.fabric.utilities.data import (
     _replace_dunder_methods,
     _set_sampler_epoch,
     has_iterable_dataset,
+    suggested_max_num_workers,
 )
-from lightning.fabric.utilities.distributed import DistributedSamplerWrapper
+from lightning.fabric.utilities.distributed import DistributedSamplerWrapper, _InfiniteBarrier
 from lightning.pytorch.overrides.distributed import UnrepeatedDistributedSamplerWrapper
-from lightning.pytorch.strategies import DDPStrategy
 from lightning.pytorch.trainer import call
 from lightning.pytorch.trainer.states import RunningStage, TrainerFn
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from lightning.pytorch.utilities.data import _is_dataloader_shuffled, _update_dataloader
 from lightning.pytorch.utilities.exceptions import MisconfigurationException
-from lightning.pytorch.utilities.imports import _lightning_graphcore_available
 from lightning.pytorch.utilities.model_helpers import is_overridden
-from lightning.pytorch.utilities.rank_zero import rank_zero_warn, WarningCache
+from lightning.pytorch.utilities.rank_zero import WarningCache, rank_zero_warn
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from lightning.pytorch.utilities.warnings import PossibleUserWarning
 
@@ -87,17 +87,18 @@ class _DataConnector:
         datamodule = trainer.datamodule
         lightning_module = trainer.lightning_module
         # handle datamodule prepare data:
-        # check for prepare_data_per_node & datamodule lifecycle properties before calling datamodule.prepare_data
-        if datamodule is not None:
-            dm_prepare_data_per_node = datamodule.prepare_data_per_node
-            if (dm_prepare_data_per_node and local_rank_zero) or (not dm_prepare_data_per_node and global_rank_zero):
-                call._call_lightning_datamodule_hook(trainer, "prepare_data")
+        if datamodule is not None and is_overridden("prepare_data", datamodule):
+            prepare_data_per_node = datamodule.prepare_data_per_node
+            with _InfiniteBarrier():
+                if (prepare_data_per_node and local_rank_zero) or (not prepare_data_per_node and global_rank_zero):
+                    call._call_lightning_datamodule_hook(trainer, "prepare_data")
+
         # handle lightning module prepare data:
-        # check for prepare_data_per_node before calling lightning_module.prepare_data
-        if lightning_module is not None:
-            lm_prepare_data_per_node = lightning_module.prepare_data_per_node
-            if (lm_prepare_data_per_node and local_rank_zero) or (not lm_prepare_data_per_node and global_rank_zero):
-                call._call_lightning_module_hook(trainer, "prepare_data")
+        if lightning_module is not None and is_overridden("prepare_data", lightning_module):
+            prepare_data_per_node = lightning_module.prepare_data_per_node
+            with _InfiniteBarrier():
+                if (prepare_data_per_node and local_rank_zero) or (not prepare_data_per_node and global_rank_zero):
+                    call._call_lightning_module_hook(trainer, "prepare_data")
 
     def attach_data(
         self,
@@ -165,19 +166,11 @@ class _DataConnector:
         datamodule.trainer = trainer
 
     def _requires_distributed_sampler(self, dataloader: DataLoader) -> bool:
-        if _lightning_graphcore_available():
-            from lightning_graphcore import IPUAccelerator
-
-            # `DistributedSampler` is never used with `poptorch.DataLoader`
-            is_ipu = isinstance(self.trainer.accelerator, IPUAccelerator)
-        else:
-            is_ipu = False
         return (
             self.trainer._accelerator_connector.use_distributed_sampler
             and self.trainer._accelerator_connector.is_distributed
             and not isinstance(dataloader.sampler, DistributedSampler)
             and not has_iterable_dataset(dataloader)
-            and not is_ipu
         )
 
     def _prepare_dataloader(self, dataloader: object, shuffle: bool, mode: RunningStage) -> object:
@@ -190,18 +183,9 @@ class _DataConnector:
         # don't do anything if it's not a dataloader
         if not isinstance(dataloader, DataLoader):
             return dataloader
-
-        if _lightning_graphcore_available():
-            from lightning_graphcore import IPUAccelerator
-
-            # IPUs use a custom `poptorch.DataLoader` which we might need to convert to
-            is_ipu = isinstance(self.trainer.accelerator, IPUAccelerator)
-        else:
-            is_ipu = False
         if (
             self._requires_distributed_sampler(dataloader)  # sets the distributed sampler
             or mode == RunningStage.PREDICTING  # to track indices for the predictions
-            or is_ipu
         ):
             sampler = self._resolve_sampler(dataloader, shuffle=shuffle, mode=mode)
             return _update_dataloader(dataloader, sampler, mode=mode)
@@ -282,7 +266,7 @@ class _DataLoaderSource:
 
     The source can be
 
-    1. from a ``*_dataloader()`` method on the :class:`~lightning.pytorch.core.module.LightningModule`,
+    1. from a ``*_dataloader()`` method on the :class:`~lightning.pytorch.core.LightningModule`,
     2. from a ``*_dataloader()`` method on the :class:`~lightning.pytorch.core.datamodule.LightningDataModule`,
     3. a direct instance of a :class:`~torch.utils.data.DataLoader` or supported collections thereof.
 
@@ -348,17 +332,18 @@ class _DataHookSelector:
 
     The hook source can be:
 
-    1. the :class:`~lightning.pytorch.core.module.LightningModule`,
+    1. the :class:`~lightning.pytorch.core.LightningModule`,
     2. the :class:`~lightning.pytorch.core.datamodule.LightningDataModule`,
 
     Arguments:
         model: A ``LightningModule``
         datamodule: A ``LightningDataModule``
+
     """
 
     model: "pl.LightningModule"
     datamodule: Optional["pl.LightningDataModule"]
-    _valid_hooks: Tuple[str, ...] = field(
+    _valid_hooks: tuple[str, ...] = field(
         default=("on_before_batch_transfer", "transfer_batch_to_device", "on_after_batch_transfer")
     )
 
@@ -420,36 +405,34 @@ def _check_dataloader_iterable(
         )
 
 
-def _worker_check(dataloader: object, using_spawn: bool, name: str) -> None:
+def _worker_check(trainer: "pl.Trainer", dataloader: object, name: str) -> None:
     if not isinstance(dataloader, DataLoader):
         return
 
-    num_cpus = multiprocessing.cpu_count()
+    upper_bound = suggested_max_num_workers(trainer.num_devices)
+    start_method = (
+        dataloader.multiprocessing_context.get_start_method()
+        if dataloader.multiprocessing_context is not None
+        else mp.get_start_method()
+    )
 
-    # ddp_spawn + num_workers > 0 don't mix! tell the user
-    if dataloader.num_workers > 0 and using_spawn:
-        if not dataloader.persistent_workers:
-            rank_zero_warn(
-                "num_workers>0, persistent_workers=False, and strategy=ddp_spawn"
-                " may result in data loading bottlenecks."
-                " Consider setting persistent_workers=True"
-                " (this is a limitation of Python .spawn() and PyTorch)"
-            )
-
-    elif dataloader.num_workers == 0 and using_spawn:
-        if not dataloader.persistent_workers:
-            rank_zero_warn(
-                "strategy=ddp_spawn and num_workers=0 may result in data loading bottlenecks."
-                " Consider setting num_workers>0 and persistent_workers=True"
-            )
-
-    elif dataloader.num_workers <= 2 < num_cpus and not using_spawn:
-        # if changed, update the `filterwarnings` snippet in 'speed.html#num-workers'
+    if dataloader.num_workers > 0 and start_method == "spawn" and not dataloader.persistent_workers:
         rank_zero_warn(
-            f"The dataloader, {name}, does not have many workers which may be a bottleneck."
-            " Consider increasing the value of the `num_workers` argument`"
-            f" (try {num_cpus} which is the number of cpus on this machine)"
-            " in the `DataLoader` init to improve performance.",
+            f"Consider setting `persistent_workers=True` in '{name}' to speed up the dataloader worker initialization."
+        )
+    elif dataloader.num_workers < 2 and upper_bound > 1:
+        # if changed, update the `filterwarnings` snippet in 'advanced/warnings.rst'
+        rank_zero_warn(
+            f"The '{name}' does not have many workers which may be a bottleneck. Consider increasing the value of the"
+            f" `num_workers` argument` to `num_workers={upper_bound}` in the `DataLoader` to improve performance.",
+            category=PossibleUserWarning,
+        )
+
+    if dataloader.persistent_workers and dataloader.pin_memory and trainer.reload_dataloaders_every_n_epochs > 0:
+        rank_zero_warn(
+            "The combination of `DataLoader(`pin_memory=True`, `persistent_workers=True`) and `Trainer("
+            "reload_dataloaders_every_n_epochs > 0)` can lead to instability due to limitations in PyTorch"
+            " (https://github.com/pytorch/pytorch/issues/91252). We recommend setting `pin_memory=False` in this case.",
             category=PossibleUserWarning,
         )
 
@@ -502,14 +485,13 @@ def _process_dataloader(
     dataloader = trainer._data_connector._prepare_dataloader(dataloader, shuffle=is_shuffled, mode=stage)
 
     # let the strategy inject its logic
-    strategy = trainer.strategy
-    dataloader = strategy.process_dataloader(dataloader)
+    dataloader = trainer.strategy.process_dataloader(dataloader)
 
     # check the workers
     _worker_check(
-        dataloader,
-        isinstance(strategy, DDPStrategy) and strategy._start_method == "spawn",
-        f"{stage.dataloader_prefix}_dataloader",
+        trainer=trainer,
+        dataloader=dataloader,
+        name=f"{stage.dataloader_prefix}_dataloader",
     )
 
     # add worker_init_fn for correct seeding in worker processes

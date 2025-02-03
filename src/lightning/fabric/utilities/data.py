@@ -16,9 +16,10 @@ import functools
 import inspect
 import os
 from collections import OrderedDict
+from collections.abc import Generator, Iterable, Sized
 from contextlib import contextmanager
 from functools import partial
-from typing import Any, Callable, Dict, Generator, Iterable, Optional, Sized, Tuple, Type, Union
+from typing import Any, Callable, Optional, Union
 
 from lightning_utilities.core.inheritance import get_all_subclasses
 from torch.utils.data import BatchSampler, DataLoader, IterableDataset, Sampler
@@ -79,7 +80,7 @@ def _update_dataloader(dataloader: DataLoader, sampler: Union[Sampler, Iterable]
 def _get_dataloader_init_args_and_kwargs(
     dataloader: DataLoader,
     sampler: Union[Sampler, Iterable],
-) -> Tuple[Tuple[Any], Dict[str, Any]]:
+) -> tuple[tuple[Any], dict[str, Any]]:
     if not isinstance(dataloader, DataLoader):
         raise ValueError(f"The dataloader {dataloader} needs to subclass `torch.utils.data.DataLoader`")
 
@@ -108,9 +109,9 @@ def _get_dataloader_init_args_and_kwargs(
         if was_wrapped:
             # if the dataloader was wrapped in a hook, only take arguments with default values
             # and assume user passes their kwargs correctly
-            params.update(
-                {k: v for k, v in inspect.signature(DataLoader.__init__).parameters.items() if v.default is not v.empty}
-            )
+            params.update({
+                k: v for k, v in inspect.signature(DataLoader.__init__).parameters.items() if v.default is not v.empty
+            })
         else:
             params.update(inspect.signature(DataLoader.__init__).parameters)
             params.pop("self", None)
@@ -172,7 +173,7 @@ def _get_dataloader_init_args_and_kwargs(
 def _dataloader_init_kwargs_resolve_sampler(
     dataloader: DataLoader,
     sampler: Union[Sampler, Iterable],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """This function is used to handle the sampler, batch_sampler arguments associated within a DataLoader for its re-
     instantiation."""
     batch_sampler = getattr(dataloader, "batch_sampler")
@@ -249,7 +250,7 @@ def _auto_add_worker_init_fn(dataloader: object, rank: int) -> None:
         dataloader.worker_init_fn = partial(pl_worker_init_function, rank=rank)
 
 
-def _reinstantiate_wrapped_cls(orig_object: Any, *args: Any, explicit_cls: Optional[Type] = None, **kwargs: Any) -> Any:
+def _reinstantiate_wrapped_cls(orig_object: Any, *args: Any, explicit_cls: Optional[type] = None, **kwargs: Any) -> Any:
     constructor = type(orig_object) if explicit_cls is None else explicit_cls
 
     try:
@@ -328,9 +329,8 @@ def _wrap_init_method(init: Callable, store_explicit_arg: Optional[str] = None) 
 
 
 def _wrap_attr_method(method: Callable, tag: _WrapAttrTag) -> Callable:
-    """Wraps the ``__setattr__`` or ``__delattr__`` method of classes (currently
-    :class:`~torch.utils.data.DataLoader` and :class:`~torch.utils.data.BatchSampler`) in order to enable re-
-    instantiation of custom subclasses."""
+    """Wraps the ``__setattr__`` or ``__delattr__`` method of classes (currently :class:`~torch.utils.data.DataLoader`
+    and :class:`~torch.utils.data.BatchSampler`) in order to enable re- instantiation of custom subclasses."""
 
     @functools.wraps(method)
     def wrapper(obj: Any, *args: Any) -> None:
@@ -356,7 +356,7 @@ def _wrap_attr_method(method: Callable, tag: _WrapAttrTag) -> Callable:
 
 
 @contextmanager
-def _replace_dunder_methods(base_cls: Type, store_explicit_arg: Optional[str] = None) -> Generator[None, None, None]:
+def _replace_dunder_methods(base_cls: type, store_explicit_arg: Optional[str] = None) -> Generator[None, None, None]:
     """This context manager is used to add support for re-instantiation of custom (subclasses) of `base_cls`.
 
     It patches the ``__init__``, ``__setattr__`` and ``__delattr__`` methods.
@@ -367,8 +367,8 @@ def _replace_dunder_methods(base_cls: Type, store_explicit_arg: Optional[str] = 
         # Check that __init__ belongs to the class
         # https://stackoverflow.com/a/5253424
         if "__init__" in cls.__dict__:
-            cls.__old__init__ = cls.__init__
-            cls.__init__ = _wrap_init_method(cls.__init__, store_explicit_arg)
+            cls.__old__init__ = cls.__init__  # type: ignore[misc]
+            cls.__init__ = _wrap_init_method(cls.__init__, store_explicit_arg)  # type: ignore[misc]
 
         # we want at least one setattr/delattr in the chain to be patched and it can happen, that none of the subclasses
         # implement `__setattr__`/`__delattr__`. Therefore, we are always patching the `base_cls`
@@ -390,11 +390,11 @@ def _replace_dunder_methods(base_cls: Type, store_explicit_arg: Optional[str] = 
 def _replace_value_in_saved_args(
     replace_key: str,
     replace_value: Any,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any],
-    default_kwargs: Dict[str, Any],
-    arg_names: Tuple[str, ...],
-) -> Tuple[bool, Tuple[Any, ...], Dict[str, Any]]:
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    default_kwargs: dict[str, Any],
+    arg_names: tuple[str, ...],
+) -> tuple[bool, tuple[Any, ...], dict[str, Any]]:
     """Tries to replace an argument value in a saved list of args and kwargs.
 
     Returns a tuple indicating success of the operation and modified saved args and kwargs
@@ -418,9 +418,10 @@ def _set_sampler_epoch(dataloader: object, epoch: int) -> None:
     Every PyTorch dataloader has either a sampler or a batch sampler. If the sampler is wrapped by a
     :class:`~torch.utils.data.distributed.DistributedSampler`, ``set_epoch`` must be called at the beginning
     of every epoch to ensure shuffling applies a new ordering. This has no effect if shuffling is off.
+
     """
     # cannot use a set because samplers might be unhashable: use a dict based on the id to drop duplicates
-    objects: Dict[int, Any] = {}
+    objects: dict[int, Any] = {}
     # check dataloader.sampler
     if (sampler := getattr(dataloader, "sampler", None)) is not None:
         objects[id(sampler)] = sampler
@@ -433,3 +434,73 @@ def _set_sampler_epoch(dataloader: object, epoch: int) -> None:
         set_epoch = getattr(obj, "set_epoch", None)
         if callable(set_epoch):
             set_epoch(epoch)
+
+
+def suggested_max_num_workers(local_world_size: int) -> int:
+    """Suggests an upper bound of ``num_workers`` to use in a PyTorch :class:`~torch.utils.data.DataLoader` based on
+    the number of CPU cores available on the system and the number of distributed processes in the current machine.
+
+    Args:
+        local_world_size: The number of distributed processes running on the current machine. Set this to the number
+            of devices configured in Fabric/Trainer.
+
+    """
+    if local_world_size < 1:
+        raise ValueError(f"`local_world_size` should be >= 1, got {local_world_size}.")
+    cpu_count = _num_cpus_available()
+    return max(1, cpu_count // local_world_size - 1)  # -1 to leave some resources for main process
+
+
+def _num_cpus_available() -> int:
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+
+    cpu_count = os.cpu_count()
+    return 1 if cpu_count is None else cpu_count
+
+
+class AttributeDict(dict):
+    """A container to store state variables of your program.
+
+    This is a drop-in replacement for a Python dictionary, with the additional functionality to access and modify keys
+    through attribute lookup for convenience.
+
+    Use this to define the state of your program, then pass it to
+    :meth:`~lightning.fabric.fabric.Fabric.save` and :meth:`~lightning.fabric.fabric.Fabric.load`.
+
+    Example:
+        >>> import torch
+        >>> model = torch.nn.Linear(2, 2)
+        >>> state = AttributeDict(model=model, iter_num=0)
+        >>> state.model
+        Linear(in_features=2, out_features=2, bias=True)
+        >>> state.iter_num += 1
+        >>> state.iter_num
+        1
+        >>> state
+        "iter_num": 1
+        "model":    Linear(in_features=2, out_features=2, bias=True)
+
+    """
+
+    def __getattr__(self, key: str) -> Any:
+        try:
+            return self[key]
+        except KeyError as e:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'") from e
+
+    def __setattr__(self, key: str, val: Any) -> None:
+        self[key] = val
+
+    def __delattr__(self, item: str) -> None:
+        if item not in self:
+            raise KeyError(item)
+        del self[item]
+
+    def __repr__(self) -> str:
+        if not len(self):
+            return ""
+        max_key_length = max(len(str(k)) for k in self)
+        tmp_name = "{:" + str(max_key_length + 3) + "s} {}"
+        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.keys())]
+        return "\n".join(rows)

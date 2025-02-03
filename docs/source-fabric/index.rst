@@ -62,7 +62,7 @@ Conda users
 
 Or read the :doc:`advanced install guide <fundamentals/installation>`.
 
-You can find our the list of supported PyTorch versions in our :ref:`compatibility matrix <versioning:Compatibility matrix>`.
+You can find the list of supported PyTorch versions in our :ref:`compatibility matrix <versioning:Compatibility matrix>`.
 
 .. raw:: html
 
@@ -110,10 +110,8 @@ Get Started
 
 .. raw:: html
 
-    <div class="tutorials-callout-container">
+    <div class="display-card-container">
         <div class="row">
-
-.. Add callout items below this line
 
 .. displayitem::
     :header: Convert to Fabric in 5 minutes
@@ -168,8 +166,8 @@ Get Started
         </div>
     </div>
 
-.. End of callout item section
-
+|
+|
 
 .. raw:: html
 
@@ -213,6 +211,7 @@ Get Started
     Loggers <api/loggers>
     Precision <api/precision>
     Strategies <api/strategies>
+    Utilities <api/utilities>
 
 
 .. toctree::

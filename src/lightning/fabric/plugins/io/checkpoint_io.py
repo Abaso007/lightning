@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from lightning.fabric.utilities.types import _PATH
 
@@ -32,10 +32,11 @@ class CheckpointIO(ABC):
 
         For some plugins, it is not possible to use a custom checkpoint plugin as checkpointing logic is not
         modifiable.
+
     """
 
     @abstractmethod
-    def save_checkpoint(self, checkpoint: Dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
+    def save_checkpoint(self, checkpoint: dict[str, Any], path: _PATH, storage_options: Optional[Any] = None) -> None:
         """Save model/training states as a checkpoint file through state-dump and file-write.
 
         Args:
@@ -46,7 +47,7 @@ class CheckpointIO(ABC):
         """
 
     @abstractmethod
-    def load_checkpoint(self, path: _PATH, map_location: Optional[Any] = None) -> Dict[str, Any]:
+    def load_checkpoint(self, path: _PATH, map_location: Optional[Any] = None) -> dict[str, Any]:
         """Load checkpoint from a path when resuming or loading ckpt for test/validate/predict stages.
 
         Args:

@@ -19,7 +19,11 @@ import pytest
 
 from lightning.pytorch import Trainer
 from lightning.pytorch.demos.boring_classes import BoringModel
-from lightning.pytorch.loggers.mlflow import _get_resolve_tags, _MLFLOW_AVAILABLE, MLFlowLogger
+from lightning.pytorch.loggers.mlflow import (
+    _MLFLOW_AVAILABLE,
+    MLFlowLogger,
+    _get_resolve_tags,
+)
 
 
 def mock_mlflow_run_creation(logger, experiment_name=None, experiment_id=None, run_id=None):
@@ -33,8 +37,7 @@ def mock_mlflow_run_creation(logger, experiment_name=None, experiment_id=None, r
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_exists(_, mlflow_mock, tmp_path):
+def test_mlflow_logger_exists(mlflow_mock, tmp_path):
     """Test launching three independent loggers with either same or different experiment name."""
     client = mlflow_mock.tracking.MlflowClient
 
@@ -120,8 +123,7 @@ def test_mlflow_run_name_setting(tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_run_id_setting(_, mlflow_mock, tmp_path):
+def test_mlflow_run_id_setting(mlflow_mock, tmp_path):
     """Test that the run_id argument uses the provided run_id."""
     client = mlflow_mock.tracking.MlflowClient
 
@@ -142,8 +144,7 @@ def test_mlflow_run_id_setting(_, mlflow_mock, tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_log_dir(_, mlflow_mock, tmp_path):
+def test_mlflow_log_dir(mlflow_mock, tmp_path):
     """Test that the trainer saves checkpoints in the logger's save dir."""
     client = mlflow_mock.tracking.MlflowClient
 
@@ -222,8 +223,7 @@ def test_mlflow_experiment_id_retrieved_once(_, mlflow_mock, tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_with_unexpected_characters(_, mlflow_mock, tmp_path):
+def test_mlflow_logger_with_unexpected_characters(mlflow_mock, tmp_path):
     """Test that the logger raises warning with special characters not accepted by MLFlow."""
     logger = MLFlowLogger("test", save_dir=str(tmp_path))
     metrics = {"[some_metric]": 10}
@@ -233,8 +233,7 @@ def test_mlflow_logger_with_unexpected_characters(_, mlflow_mock, tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_experiment_calls(_, mlflow_mock, tmp_path):
+def test_mlflow_logger_experiment_calls(mlflow_mock, tmp_path):
     """Test that the logger calls methods on the mlflow experiment correctly."""
     time = mlflow_mock.entities.time
     metric = mlflow_mock.entities.Metric
@@ -266,9 +265,58 @@ def test_mlflow_logger_experiment_calls(_, mlflow_mock, tmp_path):
     )
 
 
+@pytest.mark.parametrize("synchronous", [False, True])
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_with_long_param_value(_, mlflow_mock, tmp_path):
+def test_mlflow_logger_experiment_calls_with_synchronous(mlflow_mock, tmp_path, synchronous):
+    """Test that the logger calls methods on the mlflow experiment with the specified synchronous flag."""
+
+    time = mlflow_mock.entities.time
+    metric = mlflow_mock.entities.Metric
+    param = mlflow_mock.entities.Param
+    time.return_value = 1
+
+    mlflow_client = mlflow_mock.tracking.MlflowClient.return_value
+    mlflow_client.get_experiment_by_name.return_value = None
+    logger = MLFlowLogger(
+        "test", save_dir=str(tmp_path), artifact_location="my_artifact_location", synchronous=synchronous
+    )
+
+    params = {"test": "test_param"}
+    logger.log_hyperparams(params)
+
+    mlflow_client.log_batch.assert_called_once_with(
+        run_id=logger.run_id, params=[param(key="test", value="test_param")], synchronous=synchronous
+    )
+    param.assert_called_with(key="test", value="test_param")
+
+    metrics = {"some_metric": 10}
+    logger.log_metrics(metrics)
+
+    mlflow_client.log_batch.assert_called_with(
+        run_id=logger.run_id,
+        metrics=[metric(key="some_metric", value=10, timestamp=1000, step=0)],
+        synchronous=synchronous,
+    )
+    metric.assert_called_with(key="some_metric", value=10, timestamp=1000, step=0)
+
+    mlflow_client.create_experiment.assert_called_once_with(name="test", artifact_location="my_artifact_location")
+
+
+@mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
+@mock.patch.dict("lightning.pytorch.loggers.mlflow.__dict__", {"_MLFLOW_SYNCHRONOUS_AVAILABLE": False})
+def test_mlflow_logger_no_synchronous_support(mlflow_mock, tmp_path):
+    """Test that the logger does not support synchronous flag."""
+    time = mlflow_mock.entities.time
+    time.return_value = 1
+
+    mlflow_client = mlflow_mock.tracking.MlflowClient.return_value
+    mlflow_client.get_experiment_by_name.return_value = None
+    with pytest.raises(ModuleNotFoundError):
+        MLFlowLogger("test", save_dir=str(tmp_path), artifact_location="my_artifact_location", synchronous=True)
+
+
+@mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
+def test_mlflow_logger_with_long_param_value(mlflow_mock, tmp_path):
     """Test that long parameter values are truncated to 250 characters."""
 
     def _check_value_length(value, *args, **kwargs):
@@ -286,8 +334,7 @@ def test_mlflow_logger_with_long_param_value(_, mlflow_mock, tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_with_many_params(_, mlflow_mock, tmp_path):
+def test_mlflow_logger_with_many_params(mlflow_mock, tmp_path):
     """Test that when logging more than 100 parameters, it will be split into batches of at most 100 parameters."""
     logger = MLFlowLogger("test", save_dir=str(tmp_path))
 
@@ -306,8 +353,7 @@ def test_mlflow_logger_with_many_params(_, mlflow_mock, tmp_path):
     ],
 )
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_finalize(_, mlflow_mock, status, expected):
+def test_mlflow_logger_finalize(mlflow_mock, status, expected):
     logger = MLFlowLogger("test")
 
     # Pretend we are in a worker process and finalizing
@@ -319,8 +365,7 @@ def test_mlflow_logger_finalize(_, mlflow_mock, status, expected):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_logger_finalize_when_exception(_, mlflow_mock):
+def test_mlflow_logger_finalize_when_exception(mlflow_mock):
     logger = MLFlowLogger("test")
 
     # Pretend we are on the main process and failing
@@ -338,8 +383,7 @@ def test_mlflow_logger_finalize_when_exception(_, mlflow_mock):
 
 @pytest.mark.parametrize("log_model", ["all", True, False])
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_mlflow_log_model(_, mlflow_mock, log_model, tmp_path):
+def test_mlflow_log_model(mlflow_mock, log_model, tmp_path):
     """Test that the logger creates the folders and files in the right place."""
     client = mlflow_mock.tracking.MlflowClient
 
@@ -377,8 +421,7 @@ def test_mlflow_log_model(_, mlflow_mock, log_model, tmp_path):
 
 
 @mock.patch("lightning.pytorch.loggers.mlflow._get_resolve_tags", Mock())
-@mock.patch("lightning.pytorch.loggers.mlflow._MLFLOW_AVAILABLE", return_value=True)
-def test_set_tracking_uri(_, mlflow_mock):
+def test_set_tracking_uri(mlflow_mock):
     """Test that the tracking uri is set for logging artifacts to MLFlow server."""
     logger = MLFlowLogger(tracking_uri="the_tracking_uri")
     mlflow_mock.set_tracking_uri.assert_not_called()
